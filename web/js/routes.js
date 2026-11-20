@@ -20,8 +20,8 @@
     const key = (x, y) => Math.floor(x / CELL) + ':' + Math.floor(y / CELL);
     function near(x, y, r) {
       let best = -1, bd = r;
-      const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
-      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL), k = Math.ceil(r / CELL);
+      for (let a = -k; a <= k; a++) for (let b = -k; b <= k; b++) {
         const c = grid.get((gx + a) + ':' + (gy + b)); if (!c) continue;
         for (const i of c) { const d = Math.hypot(pts[i][0] - x, pts[i][1] - y); if (d < bd) { bd = d; best = i; } }
       }
@@ -43,8 +43,51 @@
         prev = id;
       }
     }
-    // endpoints that stop just short of another line (T-junctions): join to its nearest vertex
-    for (let i = 0; i < pts.length; i++) if (adj[i].length === 1) { const j = near(pts[i][0], pts[i][1], SNAP * 2); if (j >= 0 && j !== i && j !== adj[i][0][0]) link(i, j); }
+    // Dangling ends that stop at (or just short of) the middle of another line - T-junctions, which
+    // the GIS data has everywhere - are joined by splitting that line's segment at the closest point.
+    const segs = [];
+    for (let i = 0; i < pts.length; i++) for (const [j] of adj[i]) if (j > i) segs.push([i, j]);
+    const sgrid = new Map();
+    segs.forEach((sg, n) => {
+      const [a, b] = sg, x0 = Math.min(pts[a][0], pts[b][0]), x1 = Math.max(pts[a][0], pts[b][0]), y0 = Math.min(pts[a][1], pts[b][1]), y1 = Math.max(pts[a][1], pts[b][1]);
+      for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) { const kk = gx + ':' + gy; let c = sgrid.get(kk); if (!c) sgrid.set(kk, c = []); c.push(n); }
+    });
+    // Lines that cross without a shared vertex (also common in the GIS data): add a node at every
+    // crossing and chain each crossed segment through it.
+    const splits = new Map();
+    const seen = new Set();
+    for (const cell of sgrid.values()) for (let u = 0; u < cell.length; u++) for (let v = u + 1; v < cell.length; v++) {
+      const n1 = cell[u], n2 = cell[v], key = n1 < n2 ? n1 * 1e6 + n2 : n2 * 1e6 + n1;
+      if (seen.has(key)) continue; seen.add(key);
+      const [a1, b1] = segs[n1], [a2, b2] = segs[n2];
+      if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
+      const p1 = pts[a1], q1 = pts[b1], p2 = pts[a2], q2 = pts[b2];
+      const d1x = q1[0] - p1[0], d1y = q1[1] - p1[1], d2x = q2[0] - p2[0], d2y = q2[1] - p2[1];
+      const den = d1x * d2y - d1y * d2x; if (Math.abs(den) < 1e-9) continue;
+      const t = ((p2[0] - p1[0]) * d2y - (p2[1] - p1[1]) * d2x) / den, w = ((p2[0] - p1[0]) * d1y - (p2[1] - p1[1]) * d1x) / den;
+      if (t <= 0 || t >= 1 || w <= 0 || w >= 1) continue;
+      const m = add(p1[0] + d1x * t, p1[1] + d1y * t, false);
+      for (const [n, tt] of [[n1, t], [n2, w]]) { let l = splits.get(n); if (!l) splits.set(n, l = []); l.push([tt, m]); }
+    }
+    for (const [n, l] of splits) { l.sort((x, y) => x[0] - y[0]); let prev = segs[n][0]; for (const [, m] of l) { link(prev, m); prev = m; } link(prev, segs[n][1]); }
+    const JOIN = 1500;
+    const dangling = []; for (let i = 0; i < pts.length; i++) if (adj[i].length === 1) dangling.push(i);
+    for (const i of dangling) {
+      const [x, y] = pts[i], gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
+      let best = null, bd = JOIN;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const n of sgrid.get((gx + a) + ':' + (gy + b)) || []) {
+        const [p, q] = segs[n]; if (p === i || q === i || p === adj[i][0][0] || q === adj[i][0][0]) continue;
+        const ax = pts[p][0], ay = pts[p][1], dx = pts[q][0] - ax, dy = pts[q][1] - ay, L2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2)), px = ax + dx * t, py = ay + dy * t, d = Math.hypot(px - x, py - y);
+        if (d < bd) { bd = d; best = { n, t, px, py }; }
+      }
+      if (!best) continue;
+      const [p, q] = segs[best.n];
+      let m;
+      if (best.t < 0.02) m = p; else if (best.t > 0.98) m = q;
+      else { m = add(best.px, best.py, false); link(p, m); link(m, q); }  // the old p-q edge stays: harmless
+      link(i, m);
+    }
     return { pts, adj, near };
   }
 
@@ -151,6 +194,7 @@
 
   // stops: [{x, y, by}] where `by` (on the destination stop) is 'road' (default: road if possible),
   // 'river', or 'foot' (never use roads). Returns {path: [[x,y]...], legs: [{by, from, to}]}.
+  ME._routes = { graph, routeOn, dijkstra };
   ME.routeJourney = function (stops, seed) {
     let path = [], legs = [], pending = [];  // pending: consecutive cross-country points
     const flush = () => {

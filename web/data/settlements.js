@@ -25,7 +25,7 @@ window.ME_SETTLEMENTS = [
   { site: 'Edoras', special: 'edoras' },
   { site: "Helm's Deep", special: 'helmsDeep' },
   { site: 'Caras Galadhon', special: 'carasGaladhon', model: 'carasGaladhon', places: ['Caras Galadhon', 'Lothlórien'] },
-  { name: 'Esgaroth', x: 1268000, y: 874200, special: 'laketown' },
+  { name: 'Esgaroth', x: 1273000, y: 870000, special: 'laketown' }, // on piles in the lake, near its western shore
   { site: 'Amon Sûl', special: 'weathertop' },
   { site: 'Hobbiton', special: 'hobbiton', model: 'bagEnd', places: ['Hobbiton', 'Bag End', 'Bywater'] },
   { site: 'Bree', special: 'bree' },

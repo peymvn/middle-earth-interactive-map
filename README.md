@@ -187,8 +187,10 @@ mountain's spur in our terrain. The Ford of Bruinen sits where our road crosses 
 
 ### Journeys
 
-`js/routes.js` routes each journey leg along the ME-GIS road network (A* search; legs that would
-be big detours fall back to overland). Legs marked `by: 'river'` follow the rivers, for example the
+`js/routes.js` routes each journey leg along the ME-GIS road network with A* search. Legs that
+would be big detours fall back to overland. The road graph joins pieces of the network that the
+GIS data leaves unconnected: lines that cross without a shared vertex, and dead ends that stop on
+another road (T-junctions). Without that, the Great East Road wasn't routable. Legs marked `by: 'river'` follow the rivers, for example the
 Fellowship's boats and Aragorn's ships. Legs marked `by: 'foot'` go overland as a smooth
 centripetal Catmull-Rom curve with a gentle wander. The whole route is then corner-smoothed.
 Roads on the tiles are also corner-smoothed (Chaikin) before drawing.
@@ -215,6 +217,7 @@ Roads on the tiles are also corner-smoothed (Chaikin) before drawing.
 | 2026-11-20 | Label zoom thresholds lowered across the board, and rivers and named roads drawn from z2–z5. | Side-by-sides showed Arda's maps naming three to five times as many features at the same scale. Collision handling keeps it readable. |
 | 2026-11-20 | Journeys routed on roads and rivers and smoothed. | Straight waypoint-to-waypoint lines looked artificial and ignored the roads the travellers actually used. |
 | 2026-11-20 | Landmarks are **real 3D models** built procedurally with three.js and shown two ways: an orbitable 3D view, and top-down renders overlaid on the satellite map at z12+. | The 2D canvas drawings read as "sloppy cubes". Procedural models need no asset downloads or licences, can be tuned in code, sit on the real DEM, and the same model feeds both the 3D view and the map. three.js r160 is vendored as the UMD build, so it still works from `file://`. |
+| 2026-11-20 | **Journey audit**: every leg checked with `journey_audit.js` and on the map against the books. Frodo's Old Forest, Strider's route via the Chetwood, the Sirannon approach to Moria, the Nen Hithoel crossing, the Morgai trench and Isenmouthe; Aragorn's Dol Baran, Calembel and Linhir; Bilbo's Elf-path, barrels and boat up the Long Lake; Gandalf's beacon ride; the Rohirrim's Stonewain Valley. Lake-town moved into the Long Lake. | Waypoints had been placed by eye. Combined with broken road snapping, that produced detours (e.g. Henneth Annûn to the Cross-roads via Osgiliath) and lines that ignored the story. |
 | 2026-11-20 | fBm uses **gradient noise** and drops octaves under 3 px per cell. | Value noise near the pixel limit showed up as blocky squares at low zoom. |
 | 2026-11-20 | Farmland at low zoom uses the **expected** field coverage, not per-farm coin flips. | Per-farm on/off decisions aliased into a checkerboard when farms were only a few pixels wide. |
 
@@ -260,6 +263,7 @@ caps memory, because the build machine is shared.
 cd tools/test && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i && cd ../..
 tools/test/multi.sh mt "#13/1115.5/1380.6/satellite" hob "#15/519.24/955.99/map"   # -> /tmp/me/*.png
 node tools/test/ui.js                                                                 # search, cards, events, journeys
+node tools/test/journey_audit.js                                                      # every journey leg: mode, length vs straight line, detours, places passed
 ```
 
 Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
