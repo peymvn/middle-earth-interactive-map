@@ -14,7 +14,12 @@ window.ME_JOURNEYS = [
     back: ['Erebor', { at: [1232, 786], by: 'foot' }, { at: [1175, 772], by: 'foot' }, { at: [1110, 778], by: 'foot' }, { at: [1078, 815], by: 'foot' }, { at: [1066, 865], by: 'foot' }, { at: "Beorn's House", by: 'foot' }],
     backNote: 'from Beorn’s house home by the same road' },
   { id: 'frodo', name: 'Frodo & Sam', color: '#1a73e8', book: 'The Lord of the Rings (3018–3019)',
-    pts: ['Hobbiton', [532, 966], [548, 975], 'Crickhollow', 'The Old Forest', "Tom Bombadil's House", 'Barrow-downs', 'Bree', 'Midgewater Marshes', 'Weathertop', 'The Last Bridge', 'Trollshaws', 'Ford of Bruinen', 'Rivendell',
+    pts: [
+      // Book I: across country from Bag End towards Woody End, the elves at Woodhall, the short cut to
+      // Farmer Maggot's farm at Bamfurlong, his cart to Bucklebury Ferry, over the Brandywine to Crickhollow
+      'Hobbiton', { at: [524, 962], by: 'foot' }, { at: [529, 968.5], by: 'foot' }, { at: [536, 971], by: 'foot' }, { at: 'Woodhall', by: 'foot' },
+      { at: [545, 972.5], by: 'foot' }, { at: 'Bamfurlong', by: 'foot' }, { at: [551, 971.5], by: 'foot' }, { at: 'Bucklebury Ferry', by: 'foot' },
+      { at: [554.9, 969.4], by: 'foot' }, { at: [556.2, 968.8], by: 'foot' }, { at: [560.5, 966.8], by: 'foot' }, { at: 'Crickhollow', by: 'foot' }, 'The Old Forest', "Tom Bombadil's House", 'Barrow-downs', 'Bree', 'Midgewater Marshes', 'Weathertop', 'The Last Bridge', 'Trollshaws', 'Ford of Bruinen', 'Rivendell',
       { at: [855, 985], by: 'foot' }, { at: [825, 1030], by: 'foot' }, { at: [848, 1052], by: 'foot' }, { at: 'Caradhras', by: 'foot' }, { at: [852, 1068], by: 'foot' }, { at: 'Moria', by: 'foot' }, { at: 'Dimrill Dale', by: 'foot' }, { at: 'Caras Galadhon', by: 'foot' }, { at: [990, 1095], by: 'foot' }, { at: [1062, 1205], by: 'river' }, { at: 'Argonath', by: 'river' }, { at: 'Amon Hen', by: 'river' },
       { at: 'Emyn Muil', by: 'foot' }, { at: 'Dead Marshes', by: 'foot' }, { at: [1180, 1268], by: 'foot' }, [1165, 1300], { at: 'Henneth Annûn', by: 'foot' }, 'Cross-roads', { at: 'Cirith Ungol', by: 'foot' }, { at: [1205, 1335], by: 'foot' }, { at: 'Mount Doom', by: 'foot' }] },
   { id: 'aragorn', name: 'Aragorn, Legolas & Gimli', color: '#c5221f', book: 'From Amon Hen (26 Feb 3019)',
