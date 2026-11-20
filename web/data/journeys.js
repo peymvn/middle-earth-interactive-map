@@ -7,8 +7,12 @@
 window.ME_JOURNEYS = [
   { id: 'bilbo', name: "Bilbo: There and Back Again", color: '#2e7d32', book: 'The Hobbit (T.A. 2941)',
     pts: ['Hobbiton', 'Bywater', 'Brandywine Bridge', 'Bree', [640, 951], 'Weathertop', 'The Last Bridge', [800, 950], 'Trollshaws', 'Ford of Bruinen', 'Rivendell',
-      [930, 925], 'Goblin-town', [1000, 905], 'The Carrock', [1052, 900], [1110, 895], [1180, 880], [1225, 865], "Thranduil's Halls", { at: 'Lake-town', by: 'river' }, [1262, 840], 'Erebor',
-      [1240, 850], [1120, 900], [1040, 905], [960, 925], 'Rivendell', 'Ford of Bruinen', 'Weathertop', 'Bree', 'Brandywine Bridge', 'Hobbiton'] },
+      [930, 925], 'Goblin-town', [1000, 905], 'The Carrock', "Beorn's House", [1110, 895], [1180, 880], [1225, 865], "Thranduil's Halls", { at: 'Lake-town', by: 'river' }, [1262, 840], 'Erebor'],
+    // The way back (dashed). Bilbo and Gandalf rode with Beorn round the northern edge of Mirkwood and
+    // spent Yule at Beorn's house; from there they retraced the outward road (High Pass, Rivendell,
+    // the troll-gold, Bree) to Hobbiton, so that part isn't drawn a second time.
+    back: ['Erebor', { at: [1232, 786], by: 'foot' }, { at: [1175, 772], by: 'foot' }, { at: [1110, 778], by: 'foot' }, { at: [1078, 815], by: 'foot' }, { at: [1066, 865], by: 'foot' }, { at: "Beorn's House", by: 'foot' }],
+    backNote: 'from Beorn’s house home by the same road' },
   { id: 'frodo', name: 'Frodo & Sam', color: '#1a73e8', book: 'The Lord of the Rings (3018–3019)',
     pts: ['Hobbiton', [532, 966], [548, 975], 'Crickhollow', 'The Old Forest', "Tom Bombadil's House", 'Barrow-downs', 'Bree', 'Midgewater Marshes', 'Weathertop', 'The Last Bridge', 'Trollshaws', 'Ford of Bruinen', 'Rivendell',
       { at: [855, 985], by: 'foot' }, { at: [825, 1030], by: 'foot' }, { at: [848, 1052], by: 'foot' }, { at: 'Caradhras', by: 'foot' }, { at: [852, 1068], by: 'foot' }, { at: 'Moria', by: 'foot' }, { at: 'Dimrill Dale', by: 'foot' }, { at: 'Caras Galadhon', by: 'foot' }, { at: [990, 1095], by: 'foot' }, { at: [1062, 1205], by: 'river' }, { at: 'Argonath', by: 'river' }, { at: 'Amon Hen', by: 'river' },

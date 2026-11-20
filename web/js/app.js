@@ -263,25 +263,47 @@
   // Routes follow roads and rivers where they can (js/routes.js); computed lazily on first show.
   function buildJourneys() {
     if (journeyLines.length) return;
-    window.ME_JOURNEYS.forEach((j, ji) => {
+    const toStops = (list, j) => {
       const stops = [];
-      for (const w of j.pts) {
+      for (const w of list) {
         const o = (w && !Array.isArray(w) && typeof w === 'object') ? w : { at: w };
         const p = Array.isArray(o.at) ? [o.at[0] * 1000, o.at[1] * 1000] : o.km ? [o.km[0] * 1000, o.km[1] * 1000] : resolve(o.at);
         if (p) stops.push({ x: p[0], y: p[1], by: o.by }); else console.warn('journey waypoint not found', j.id, o.at);
       }
+      return stops;
+    };
+    const lengthOf = (path) => { let m = 0; for (let i = 1; i < path.length; i++) m += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]) / 1000; return m; };
+    window.ME_JOURNEYS.forEach((j, ji) => {
+      const stops = toStops(j.pts, j);
       const r = ME.routeJourney(stops, ji * 7.3 + 1);
+      const parts = [], ends = [];
+      // outward route: solid line
+      let miles = lengthOf(r.path);
       const pts = r.path.map(q => ll(q[0], q[1]));
-      let miles = 0; for (let i = 1; i < r.path.length; i++) miles += Math.hypot(r.path[i][0] - r.path[i - 1][0], r.path[i][1] - r.path[i - 1][1]) / 1000;
-      const casing = L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.9, lineJoin: 'round', lineCap: 'round', interactive: false, smoothFactor: 0.6 });
-      const line = L.polyline(pts, { color: j.color, weight: 4.5, opacity: 0.95, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.6, dashArray: j.id === 'bilbo' ? '1 8' : null });
-      line.bindTooltip(`<b>${j.name}</b><br>${j.book}<br>about ${Math.round(miles / 10) * 10} miles`, { sticky: true, className: 'jt' });
-      const ends = [stops[0], stops[stops.length - 1]].map((s, k) => L.circleMarker(ll(s.x, s.y), { radius: k ? 6 : 5, color: '#fff', weight: 2, fillColor: j.color, fillOpacity: 1, interactive: false }));
-      const grp = L.layerGroup([casing, line, ...ends]);
-      journeyLines.push({ j, grp, on: true, miles });
+      parts.push(L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.9, lineJoin: 'round', lineCap: 'round', interactive: false, smoothFactor: 0.6 }));
+      const line = L.polyline(pts, { color: j.color, weight: 4.5, opacity: 0.95, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.6 });
+      parts.push(line);
+      // the way back, where it differs from the way out: dashed
+      let backMiles = 0;
+      if (j.back) {
+        const br = ME.routeJourney(toStops(j.back, j), ji * 7.3 + 5);
+        backMiles = lengthOf(br.path);
+        const bpts = br.path.map(q => ll(q[0], q[1]));
+        parts.push(L.polyline(bpts, { color: '#ffffff', weight: 6, opacity: 0.75, lineJoin: 'round', lineCap: 'round', interactive: false, smoothFactor: 0.6 }));
+        const bl = L.polyline(bpts, { color: j.color, weight: 3.5, opacity: 0.9, dashArray: '2 9', lineCap: 'round', smoothFactor: 0.6 });
+        bl.bindTooltip(`<b>${j.name}</b>: the way back<br>${j.backNote || ''}`, { sticky: true, className: 'jt' });
+        parts.push(bl);
+      }
+      line.bindTooltip(`<b>${j.name}</b>${j.back ? ': the way out' : ''}<br>${j.book}<br>about ${Math.round(miles / 10) * 10} miles`, { sticky: true, className: 'jt' });
+      for (const [s, k] of [[stops[0], 0], [stops[stops.length - 1], 1]]) parts.push(L.circleMarker(ll(s.x, s.y), { radius: k ? 6 : 5, color: '#fff', weight: 2, fillColor: j.color, fillOpacity: 1, interactive: false }));
+      const grp = L.layerGroup(parts);
+      // a round trip counts the outward road twice except where the way back differs
+      journeyLines.push({ j, grp, on: true, miles: j.back ? miles + backMiles + (miles - lengthOf(r.path.slice(0, nearestIndex(r.path, toStops(j.back, j).slice(-1)[0])))) : miles });
       journeyLayer.addLayer(grp);
     });
   }
+  function nearestIndex(path, s) { let bi = 0, bd = Infinity; path.forEach((q, i) => { const d = Math.hypot(q[0] - s.x, q[1] - s.y); if (d < bd) { bd = d; bi = i; } }); return bi + 1; }
+
 
   // ------------------------------------------------------------------ mode switching
   const mapEl = document.getElementById('map');
@@ -487,7 +509,7 @@
     legendMode = mode;
     legend.hidden = false;
     if (mode === 'journeys') {
-      legend.innerHTML = `<h3>Journeys</h3>${journeyLines.map((r, i) => `<div class="jr${r.on ? '' : ' off'}" data-j="${i}"><span class="sw" style="background:${r.j.color}"></span><div><div>${esc(r.j.name)}</div><div style="color:#70757a;font-size:11px">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</div></div></div>`).join('')}<div class="note">Routes follow roads and rivers where the story does; overland stretches are approximate. Click to show or hide.</div>`;
+      legend.innerHTML = `<h3>Journeys</h3>${journeyLines.map((r, i) => `<div class="jr${r.on ? '' : ' off'}" data-j="${i}"><span class="sw" style="background:${r.j.color}"></span><div><div>${esc(r.j.name)}</div><div style="color:#70757a;font-size:11px">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</div></div></div>`).join('')}<div class="note">Solid: the way there. Dashed: a different way back (Bilbo). Routes follow roads and rivers where the story does; overland stretches are approximate. Click to show or hide.</div>`;
       legend.querySelectorAll('.jr').forEach(el => el.onclick = () => {
         const r = journeyLines[+el.dataset.j]; r.on = !r.on;
         if (r.on) journeyLayer.addLayer(r.grp); else journeyLayer.removeLayer(r.grp);

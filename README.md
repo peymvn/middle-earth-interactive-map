@@ -226,7 +226,7 @@ Most improvements need **no build step**: edit a file in `web/` and reload.
 |---|---|
 | Add or fix a place description | `web/data/places.js` (position by `site`, `label` or `km`) |
 | Add a historical event | `web/data/events.js` |
-| Improve a journey route | `web/data/journeys.js` |
+| Improve a journey route (`back` adds a dashed return leg) | `web/data/journeys.js` |
 | Change where it's desert, farmland, blighted, Rohan grass… | `web/data/climate.js` (polygons in map km) |
 | Change a town's style or size, or attach a landmark generator | `web/data/settlements.js` |
 | Reshape Númenor or add another island beyond the DEM | `web/data/islands.js` |
