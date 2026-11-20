@@ -1,0 +1,25 @@
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.env.CHROME, args: ['--allow-file-access-from-files'] });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errs = [];
+  page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.text().slice(0, 200)); });
+  page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+  const url = 'file://' + require('path').resolve(__dirname, '../../web/index.html');
+  const idle = () => page.waitForFunction(() => document.querySelectorAll('.leaflet-tile').length > 0 && document.querySelectorAll('.leaflet-tile:not(.leaflet-tile-loaded)').length === 0, null, { timeout: 90000 }).catch(() => errs.push('timeout'));
+  await page.goto(url + '#5/900/1100/satellite'); await idle();
+  await page.fill('#search', 'weather');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: '/tmp/me/ui_suggest.png' });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(2500); await idle(); await page.waitForTimeout(2500);
+  await page.screenshot({ path: '/tmp/me/ui_card.png' });
+  await page.click('[data-chip=events]'); await page.waitForTimeout(400);
+  await page.click('[data-ev=helms-deep]'); await page.waitForTimeout(2000); await idle(); await page.waitForTimeout(3000);
+  await page.screenshot({ path: '/tmp/me/ui_event.png' });
+  await page.click('[data-chip=journeys]'); await page.waitForTimeout(300);
+  await page.evaluate(() => ME.map.setView([1150000, 950000], 4)); await idle(); await page.waitForTimeout(800);
+  await page.screenshot({ path: '/tmp/me/ui_journeys.png' });
+  console.log(errs.join('\n'));
+  await browser.close();
+})();

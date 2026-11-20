@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Middle-earth Maps</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- search box + place card (top left) -->
+  <div id="sidebar">
+    <div id="searchbox">
+      <button id="menu-btn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
+      <input id="search" type="text" placeholder="Search Middle-earth" autocomplete="off" spellcheck="false">
+      <button id="search-btn" title="Search" aria-label="Search">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      </button>
+      <button id="clear-btn" title="Close" aria-label="Close" hidden>
+        <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div id="suggestions" hidden></div>
+    <div id="card" hidden></div>
+  </div>
+
+  <!-- chips along the top, like Google's category chips -->
+  <div id="chips">
+    <button class="chip" data-chip="events">⚔️ Events</button>
+    <button class="chip" data-chip="journeys">🧭 Journeys</button>
+    <button class="chip" data-chip="cities">🏰 Cities</button>
+    <button class="chip" data-chip="landmarks">⛰️ Landmarks</button>
+  </div>
+
+  <!-- layer switcher (bottom left) -->
+  <div id="layerswitch">
+    <button id="layer-thumb" title="Switch map type"><canvas id="thumb-canvas" width="80" height="80"></canvas><span id="thumb-label">Satellite</span></button>
+    <div id="layer-more">
+      <label class="lopt"><input type="checkbox" id="opt-terrain" checked><span>Terrain</span></label>
+      <label class="lopt"><input type="checkbox" id="opt-labels" checked><span>Labels</span></label>
+      <label class="lopt"><input type="checkbox" id="opt-events" checked><span>Events</span></label>
+      <label class="lopt"><input type="checkbox" id="opt-journeys"><span>Journeys</span></label>
+    </div>
+  </div>
+
+  <div id="ctxmenu" hidden></div>
+  <div id="toast" hidden></div>
+  <div id="measure-box" hidden></div>
+  <div id="legend" hidden></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <!-- data -->
+  <script src="data/vectors.js"></script>
+  <script src="data/climate.js"></script>
+  <script src="data/settlements.js"></script>
+  <script src="data/places.js"></script>
+  <script src="data/events.js"></script>
+  <script src="data/journeys.js"></script>
+  <script src="data/islands.js"></script>
+  <script src="data/photos.js"></script>
+  <script src="data/relief.js"></script>
+  <script src="data/arda.js"></script>
+  <!-- renderer -->
+  <script src="js/engine/settlements.js"></script>
+  <script src="js/engine/worker.js"></script>
+  <script src="js/engine/pool.js"></script>
+  <!-- app -->
+  <script src="js/labels.js"></script>
+  <script src="js/routes.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

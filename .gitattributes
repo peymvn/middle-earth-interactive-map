@@ -1,0 +1,4 @@
+# generated terrain tiles: don't diff
+web/tiles/** -diff linguist-generated
+web/data/vectors.js -diff linguist-generated
+web/data/relief.js -diff linguist-generated

@@ -1,0 +1,9 @@
+# raw downloads (tools/download_sources.sh, tools/arda_crawl.sh) and build scratch
+sources/
+build_tmp/
+.venv/
+__pycache__/
+*.log
+# test tooling
+tools/test/node_modules/
+tools/test/package-lock.json
