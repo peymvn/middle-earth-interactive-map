@@ -13,6 +13,20 @@ the western sea) that runs entirely in the browser, with two modes:
 * **Map**: the familiar Google look. Pale land, blue water, green woods, white and yellow roads,
   grey building footprints, and optional relief shading with contour lines ("Terrain").
 
+**3D landmarks** (three.js, in `web/js/three/`): click **🧊 3D** on a place card, or the 3D badge on
+the map, to fly around a modelled scene set on our real terrain and imagery. The scenes are Bag End
+and Hobbiton, Barad-dûr with the Eye, Orthanc and the Ring of Isengard, Rivendell, Caras Galadhon,
+the Front Gate of Erebor with Dale, Moria's West-gate with the Doors of Durin, the Bridge of
+Khazad-dûm with Gandalf and the Balrog, the Entmoot in Derndingle, Minas Tirith and the Argonath.
+In satellite mode the same models are rendered from straight above and laid over the map from
+zoom 12, so the map shows real roofs, towers and shadows there.
+
+| | | |
+|---|---|---|
+| ![](docs/3d/baradDur.jpg) | ![](docs/3d/isengard.jpg) | ![](docs/3d/bridge.jpg) |
+| ![](docs/3d/rivendell.jpg) | ![](docs/3d/argonath.jpg) | ![](docs/3d/minasTirith.jpg) |
+| ![](docs/3d/carasGaladhon.jpg) | ![](docs/3d/moriaGate.jpg) | ![](docs/3d/derndingle.jpg) |
+
 On top of both: Google-style labels with collision handling, search with autocomplete, place cards
 (each with a **film still from Peter Jackson's trilogies** where one exists, or a rendered aerial
 "photo", plus a description, events, nearby places and a share link), about 70
@@ -149,6 +163,28 @@ image-map area with pixel coordinates, which makes a systematic check possible:
 Places with `keep: true` in `places.js` ignore Arda's position. Minas Tirith stays on the
 mountain's spur in our terrain. The Ford of Bruinen sits where our road crosses our river.
 
+### 3D landmarks
+
+* `web/js/three/kit.js`: the modelling kit. It holds procedural canvas textures (ashlar, rock, roof
+  tiles, slate, thatch, planks, grass, bark, the ithildin Doors of Durin), materials, and parts:
+  houses with gable or hip roofs, towers, crenellated walls, segmental arch bridges, trees
+  (deciduous, conifer, mallorn), noise-displaced rock, tapered tubes for horns, tentacles and
+  limbs, water ribbons, waterfalls, smoke and glows. `mergeStatic` merges each scene's static meshes
+  into one mesh per material, which keeps scenes of thousands of parts fast.
+* `web/js/three/models.js`: one builder per landmark. Each declares `info.radius`, an optional
+  `shape(x, z)` that sculpts the real terrain (Rivendell's valley, the Argonath gorge, Erebor's
+  slopes), and `build(ctx)`. The builder gets the shaped ground height and the real rivers
+  crossing the scene, so models sit on our terrain.
+* `web/js/three/view3d.js`: the viewer. It builds the terrain mesh from the same worker pipeline
+  as the map tiles (`ME.terrainPatch`), with our satellite imagery as texture. It adds sky, a sun
+  with soft shadows, an environment map, fog and orbit controls. It also renders the
+  orthographic top-down views that become map overlays (`ME3D.OverlayLayer`).
+* To attach a model to a place, add `model: '<builderId>'` to its entry in
+  `web/data/settlements.js`. The 2D settlement drawing is then hidden where the model overlay
+  covers it.
+* Test: `node tools/test/view3d.js <builderId>` saves a screenshot to `/tmp/me/3d_<id>.png`. It
+  uses software WebGL, so it is slow.
+
 ### Journeys
 
 `js/routes.js` routes each journey leg along the ME-GIS road network (A* search; legs that would
@@ -178,6 +214,7 @@ Roads on the tiles are also corner-smoothed (Chaikin) before drawing.
 | 2026-11-20 | **Systematic Encyclopedia of Arda check** with image-map labels and RANSAC-fitted transforms, instead of eyeballing a few maps. | It covers every regional map, catches label-offset and edge-pointer errors through cross-map agreement, and is repeatable. It only adds places and changes positions we placed by hand: GIS-anchored places agree with our terrain and rivers, so their disagreements are only reported. |
 | 2026-11-20 | Label zoom thresholds lowered across the board, and rivers and named roads drawn from z2–z5. | Side-by-sides showed Arda's maps naming three to five times as many features at the same scale. Collision handling keeps it readable. |
 | 2026-11-20 | Journeys routed on roads and rivers and smoothed. | Straight waypoint-to-waypoint lines looked artificial and ignored the roads the travellers actually used. |
+| 2026-11-20 | Landmarks are **real 3D models** built procedurally with three.js and shown two ways: an orbitable 3D view, and top-down renders overlaid on the satellite map at z12+. | The 2D canvas drawings read as "sloppy cubes". Procedural models need no asset downloads or licences, can be tuned in code, sit on the real DEM, and the same model feeds both the 3D view and the map. three.js r160 is vendored as the UMD build, so it still works from `file://`. |
 | 2026-11-20 | fBm uses **gradient noise** and drops octaves under 3 px per cell. | Value noise near the pixel limit showed up as blocky squares at low zoom. |
 | 2026-11-20 | Farmland at low zoom uses the **expected** field coverage, not per-farm coin flips. | Per-farm on/off decisions aliased into a checkerboard when farms were only a few pixels wide. |
 
@@ -263,6 +300,7 @@ Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
   jvangeld and others, via Arda's `vectors.gpkg`. The authors say they "typically approve most
   personal and educational uses". Ask them before any other use.
 * **Leaflet** 1.9.4, BSD-2-Clause (vendored in `web/vendor/leaflet`).
+* **three.js** r160, MIT (vendored in `web/vendor/three`).
 * Middle-earth, its places, characters and events are the creation of **J.R.R. Tolkien**. This is
   a non-commercial fan project. Descriptions are written fresh, with short quotations from the
   books. Imagery is an artistic reconstruction, not a canonical depiction.

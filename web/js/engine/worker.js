@@ -307,16 +307,28 @@ function MEWorker() {
 
   // ------------------------------------------------------------------ main render
   async function render(job) {
-    const { z, x, y, dpr, mode, opts } = job;
-    const R = Math.round(TILE * dpr);
-    const tileMu = WORLD / (1 << z);
-    const px = tileMu / R; // map units per output pixel
-    const ox = x * tileMu, oy = y * tileMu;
-    const L = Math.min(z, MAXZ);
+    const { dpr, mode } = job;
+    const opts = job.opts || {};
+    let z, R, px, ox, oy, L, dox, doy, dataMu;
+    if (job.patch) {
+      // arbitrary square patch (used by the 3D viewer): R px of px mu each from (ox, oy); the pool picked
+      // a data tile (level L, tile dtx/dty) that contains it
+      ({ ox, oy, px, R } = job.patch);
+      z = Math.log2(WORLD / (TILE * px));
+      L = job.L; dataMu = WORLD / (TILE << L);
+      dox = job.dtx * TILE * dataMu; doy = job.dty * TILE * dataMu;
+    } else {
+      z = job.z;
+      R = Math.round(TILE * dpr);
+      const tileMu = WORLD / (1 << z);
+      px = tileMu / R; // map units per output pixel
+      ox = job.x * tileMu; oy = job.y * tileMu;
+      L = Math.min(z, MAXZ);
+      dataMu = WORLD / (TILE << L); // mu per data px
+      dox = (job.x >> (z - L)) * TILE * dataMu; doy = (job.y >> (z - L)) * TILE * dataMu;
+    }
     if (job.extra) for (const e of job.extra) await getData(e.key, e.b64);
     const data = job.dataKey ? await getData(job.dataKey, job.b64) : null;
-    const dataMu = WORLD / (TILE << L); // mu per data px
-    const dox = (x >> (z - L)) * TILE * dataMu, doy = (y >> (z - L)) * TILE * dataMu;
 
     // --- 1. elevation (+1px border for normals), class, lake depth
     const W2 = R + 2, n2 = W2 * W2;
@@ -401,11 +413,17 @@ function MEWorker() {
 
     // --- 3. vectors
     const view = { ox, oy, px, z, R, mode, dpr, opts, ctx, H, W2 };
-    drawRivers(view);
+    if (!opts.noRivers) drawRivers(view);
     if (mode === 'map' || z >= 9) drawRoads(view);
     drawSettlements(view);
     if (mode === 'map') drawRoads(view, true);
-    return canvas.transferToImageBitmap();
+    const bmp = canvas.transferToImageBitmap();
+    if (job.patch) {
+      const heights = new Float32Array(R * R);
+      for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) heights[j * R + i] = H[(j + 1) * W2 + (i + 1)];
+      return { bmp, heights };
+    }
+    return bmp;
   }
 
   // ------------------------------------------------------------------ satellite pixel
@@ -809,8 +827,9 @@ function MEWorker() {
     }
     if (m.type === 'render') {
       try {
-        const bmp = await render(m.job);
-        self.postMessage({ type: 'tile', id: m.id, bmp }, [bmp]);
+        const out = await render(m.job);
+        if (out.heights) self.postMessage({ type: 'tile', id: m.id, bmp: out.bmp, heights: out.heights }, [out.bmp, out.heights.buffer]);
+        else self.postMessage({ type: 'tile', id: m.id, bmp: out }, [out]);
       } catch (err) {
         self.postMessage({ type: 'tile', id: m.id, error: String(err && err.stack || err) });
       }

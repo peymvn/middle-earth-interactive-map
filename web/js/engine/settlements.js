@@ -238,6 +238,7 @@ function MESettlements(H) {
   // ---------------------------------------------------------------- specials
   const WHITE = [232, 230, 222], STONE = [206, 202, 192], SLATE = [112, 118, 128], BLACK = [40, 38, 40], DARK = [58, 54, 54];
   const SPECIALS = {
+    none() { /* drawn only as a 3D model (data/settlements.js `model`) */ },
     // The seven-walled city on the eastern spur of Mindolluin. Gate faces east (+u).
     minasTirith(s, b, R) {
       const r0 = 430; // first wall radius (mu); ~700 m
@@ -520,7 +521,7 @@ function MESettlements(H) {
       if (d.hide) continue;
       x += d.dx || 0; y += d.dy || 0;
       const kind = d.kind || (base && base.k) || 'town';
-      LIST.push({ name: d.name || d.site, x, y, kind, special: d.special, walls: d.walls, rot: (d.rot || 0) * Math.PI / 180,
+      LIST.push({ name: d.name || d.site, x, y, kind, special: d.special, walls: d.walls, model: d.model, rot: (d.rot || 0) * Math.PI / 180,
         style: d.style || styleAt(x, y), R: d.size || radius[kind] || 150, seed: strSeed(d.name || d.site) });
     }
     sites.forEach((s, i) => {
@@ -656,7 +657,9 @@ function MESettlements(H) {
     if (!list.length) return;
     const T = (x, y) => [(x - ox) / px, (y - oy) / px];
     const sat = mode !== 'map';
+    const hideModelled = view.opts && view.opts.models && (z >= 12 || view.opts.patch);
     for (const s of list) {
+      if (hideModelled && s.model) continue; // a rendered 3D model is laid over the map here (js/three)
       // glows & lava are visible from far away (Mount Doom, the Eye)
       if (z < 9) {
         if (s.special === 'mountDoom' || s.special === 'baradDur') {

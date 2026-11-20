@@ -191,7 +191,7 @@
   const bounds = L.latLngBounds(ll(-W * 0.6, 0), ll(W, W)); // includes the islands west of the DEM (data/islands.js)
   const state = { mode: 'satellite', terrain: true, labels: true, events: true, journeys: false };
   const layers = {
-    satellite: new ME.TerrainLayer({ mode: 'satellite', bounds, maxNativeZoom: 17 }),
+    satellite: new ME.TerrainLayer({ mode: 'satellite', opts: { models: !!window.ME3D }, bounds, maxNativeZoom: 17 }),
     map: new ME.TerrainLayer({ mode: 'map', opts: { terrain: true }, bounds, maxNativeZoom: 17 }),
   };
 
@@ -247,6 +247,16 @@
   }
   map.on('zoomend', updateEventPins);
 
+  // ------------------------------------------------------------------ 3D landmark badges
+  const badgeLayer = L.layerGroup();
+  if (window.ME3D) for (const lm of ME3D.landmarks()) {
+    const m = L.marker(ll(lm.x, lm.y), { icon: L.divIcon({ className: '', iconSize: [40, 20], iconAnchor: [-6, 30], html: '<div class="pin3d" title="Open in 3D">🧊 3D</div>' }), keyboard: false, zIndexOffset: -100 });
+    m.on('click', () => ME3D.open(lm.id, lm));
+    badgeLayer.addLayer(m);
+  }
+  const updateBadges = () => { if (map.getZoom() >= 8) badgeLayer.addTo(map); else map.removeLayer(badgeLayer); };
+  map.on('zoomend', updateBadges);
+
   // ------------------------------------------------------------------ journeys
   const journeyLayer = L.layerGroup();
   const journeyLines = [];
@@ -275,8 +285,10 @@
 
   // ------------------------------------------------------------------ mode switching
   const mapEl = document.getElementById('map');
+  const modelLayer = window.ME3D ? new ME3D.OverlayLayer() : null;
   function setMode(mode) {
     state.mode = mode;
+    if (modelLayer) { if (mode === 'satellite') modelLayer.addTo(map); else map.removeLayer(modelLayer); }
     for (const [k, l] of Object.entries(layers)) { if (k === mode) { if (!map.hasLayer(l)) l.addTo(map); } else if (map.hasLayer(l)) map.removeLayer(l); }
     mapEl.classList.toggle('mode-map', mode === 'map');
     mapEl.classList.toggle('mode-sat', mode !== 'map');
@@ -382,6 +394,7 @@
         <button class="act" data-a="measure"><span class="ring">📏</span>Measure</button>
         <button class="act" data-a="share"><span class="ring">🔗</span>Share</button>
         <button class="act" data-a="view"><span class="ring">${state.mode === 'map' ? '🛰️' : '🗺️'}</span>${state.mode === 'map' ? 'Satellite' : 'Map'}</button>
+        ${lm3d(p) ? '<button class="act" data-a="3d"><span class="ring">🧊</span>3D</button>' : ''}
       </div>
       ${p.desc ? `<div class="desc">${esc(p.desc)}</div>` : ''}
       ${(p.arda || (ARDA.links[p.name] || {}).url) ? `<div class="row"><span class="ri">📖</span><a href="${p.arda || (ARDA.links[p.name] || {}).url}" target="_blank" rel="noopener">Read about ${esc(p.name)} in the Encyclopedia of Arda</a></div>` : ''}
@@ -393,6 +406,7 @@
     card.querySelector('[data-a=measure]').onclick = () => startMeasure(ll(p.x, p.y));
     card.querySelector('[data-a=share]').onclick = () => { const u = location.href.split('#')[0] + `#${photoZoom(p)}/${km(p.x)}/${km(p.y)}/${state.mode}`; navigator.clipboard && navigator.clipboard.writeText(u); toast('Link copied'); };
     card.querySelector('[data-a=view]').onclick = () => { setMode(state.mode === 'map' ? 'satellite' : 'map'); openPlace(p, false); };
+    const b3 = card.querySelector('[data-a="3d"]'); if (b3) b3.onclick = () => { const l = lm3d(p); ME3D.open(l.id, l); };
     setPhoto(card.querySelector('.photo'), p.x, p.y, photoZoom(p), PHOTOS['p:' + p.name]);
     selectPin(p.x, p.y);
     if (fly) {
@@ -400,6 +414,8 @@
       map.flyTo(ll(p.x - 0.0 * W, p.y), z, { duration: 1.2 });
     }
   }
+  function lm3d(p) { return window.ME3D ? ME3D.forPlace(p.name, p.x, p.y) : null; }
+  const EVENT_3D = { bridge: 'bridgeKhazadDum', 'durins-bane': 'bridgeKhazadDum', entmoot: 'derndingle' };
   function dir(a, b) {
     const ang = Math.atan2(-(b.y - a.y), b.x - a.x) * 180 / Math.PI;
     return ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'][((Math.round(ang / 45) % 8) + 8) % 8];
@@ -414,10 +430,13 @@
       <div class="body"><h1>${KIND[e.kind] || ''} ${esc(e.title)}</h1><div class="cat">${esc(e.date)}</div>
       <div class="cat" style="color:${b[1]}">${esc(b[0])}</div></div>
       <div class="desc">${esc(e.desc)}</div>
+      ${(EVENT_3D[e.id] || (e.place && lm3d(e.place))) ? '<div class="ev" data-a="ev3d"><span class="badge">🧊</span><div><div>See it in 3D</div><div class="date">Explore the scene</div></div></div>' : ''}
       ${e.place ? `<div class="ev" data-place="${e.place.id}"><span class="badge">📍</span><div><div>${esc(e.place.name)}</div><div class="date">${esc((TYPE[e.place.type] || {}).label || '')}</div></div></div>` : ''}
       ${same.length ? `<h2>Also here</h2>${same.map(eventRow).join('')}` : ''}
       <h2>Timeline</h2>${prev ? eventRow(prev) : ''}${next ? eventRow(next) : ''}`);
     setPhoto(card.querySelector('.photo'), e.x, e.y, e.place ? photoZoom(e.place) : 13, PHOTOS['e:' + e.id] || (e.place && PHOTOS['p:' + e.place.name]));
+    const e3 = card.querySelector('[data-a="ev3d"]');
+    if (e3) e3.onclick = () => { const l = (e.place && lm3d(e.place)) || ME3D.landmarks().find(x => x.id === EVENT_3D[e.id] || (x.extra || []).includes(EVENT_3D[e.id])); ME3D.open(EVENT_3D[e.id] || l.id, l); };
     selectPin(e.x, e.y);
     map.flyTo(ll(e.x, e.y), Math.max(map.getZoom(), 9), { duration: 1.2 });
   }
@@ -557,6 +576,7 @@
   labelLayer.addTo(map);
   eventLayer.addTo(map);
   updateEventPins();
+  updateBadges();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideSuggest(); if (measure) mbox.querySelector('#m-clear').click(); } });
   // menu -> about card
   document.getElementById('menu-btn').onclick = () => {

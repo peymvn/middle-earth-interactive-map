@@ -54,7 +54,7 @@
           const job = jobs.get(m.id);
           jobs.delete(m.id);
           w.busy = false;
-          if (job) { if (m.error) job.reject(new Error(m.error)); else job.resolve(m.bmp); }
+          if (job) { if (m.error) job.reject(new Error(m.error)); else job.resolve(m.heights ? { bmp: m.bmp, heights: m.heights } : m.bmp); }
           else if (m.bmp) m.bmp.close();
           pump();
         }
@@ -66,6 +66,21 @@
   }
 
   async function prepare(job) {
+    if (job.patch) {
+      // smallest-scale data tile (deepest level) that contains the whole patch plus padding
+      const W = window.ME_VECTORS.world, { ox, oy, px, R } = job.patch, pad = 2 * px;
+      for (let L = MAXZ; L >= 0; L--) {
+        const t = W / (1 << L), dtx = Math.floor(ox / t), dty = Math.floor(oy / t);
+        const dmu = t / TILE;
+        if (ox - pad >= dtx * t - dmu && ox + R * px + pad <= (dtx + 1) * t + dmu && oy - pad >= dty * t - dmu && oy + R * px + pad <= (dty + 1) * t + dmu) {
+          Object.assign(job, { L, dtx, dty, dataKey: `${L}/${dtx}/${dty}` });
+          break;
+        }
+      }
+      job.b64 = job.dataKey ? await loadTerrain(job.dataKey) : null;
+      if (!job.b64) job.dataKey = null;
+      return job;
+    }
     const { z, x, y } = job;
     const n = 1 << z;
     if (x < 0 || y < 0 || x >= n || y >= n) return job;
@@ -137,6 +152,12 @@
       return tile;
     },
   });
+
+  // Terrain patch for the 3D viewer: satellite colours + heights (m) for R x R samples starting at
+  // (ox, oy) map units, px map units apart. opts.models hides 2D drawings of modelled landmarks.
+  ME.terrainPatch = function (ox, oy, px, R, opts) { // opts: { noRivers }
+    return ME.render({ patch: { ox, oy, px, R }, dpr: 1, mode: 'satellite', opts: Object.assign({ models: true, patch: true }, opts) }).promise;
+  };
 
   // Render an arbitrary view (for place-card photos and the layer-switch thumbnail)
   ME.snapshot = async function (mx, my, z, w, h, mode, opts) {
