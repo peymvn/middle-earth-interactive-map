@@ -163,3 +163,28 @@ html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--tex
 .pin3d { background: #202124; color: #fff; border-radius: 12px; font: 600 11px Roboto, Arial; padding: 3px 7px 3px 6px; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: pointer; white-space: nowrap; border: 1.5px solid #fff; }
 .pin3d:hover { background: #1a73e8; }
 .model-overlay { image-rendering: auto; }
+
+/* ---------- journey timeline: hover pill and stage card */
+.leaflet-tooltip.jt-pill { padding: 6px 10px; border-radius: 10px; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.25); font: 12px/1.35 var(--font); color: #202124; max-width: 360px; white-space: normal; }
+.leaflet-tooltip.jt-pill::before { display: none; }
+.jt-head { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.jt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.jt-date { margin-left: auto; color: #5f6368; font-weight: 500; padding-left: 8px; }
+.jt-line { margin-top: 2px; color: #3c4043; }
+.jt-more { margin-top: 3px; color: #1a73e8; font-size: 11px; }
+.jt-hit { cursor: pointer; }
+.jt-small .jt-stage { display: none; }
+#card .muted, .muted { color: #70757a; font-size: 12px; }
+.tl-list { padding: 0 12px 8px 20px; max-height: 300px; overflow-y: auto; position: relative; }
+.tl-stage { display: flex; gap: 12px; padding: 6px 8px 6px 0; cursor: pointer; border-radius: 8px; position: relative; }
+.tl-stage:hover { background: #f8f9fa; }
+.tl-stage::before { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; background: #e0e3e7; z-index: 0; }
+.tl-stage:first-child::before { top: 14px; } .tl-stage:last-child::before { bottom: calc(100% - 14px); }
+.tl-pin { width: 8px; height: 8px; border-radius: 50%; border: 2px solid; background: #fff; margin-top: 4px; flex: none; position: relative; z-index: 1; }
+.tl-when { color: #70757a; font-size: 11px; }
+.tl-name { font-size: 14px; }
+.tl-stage.here .tl-name { font-weight: 500; }
+.tl-text { font-size: 13px; color: #3c4043; margin-top: 3px; line-height: 1.45; }
+.tl-you { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 12px; font-weight: 500; color: #202124; position: relative; }
+.tl-you span { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); margin-left: -1px; flex: none; z-index: 1; }
+.leaflet-interactive:focus, .jt-hit:focus { outline: none; }

@@ -246,6 +246,8 @@
     }
   }
   map.on('zoomend', updateEventPins);
+  const zoomClass = () => { mapEl.classList.toggle('jt-small', map.getZoom() < 6); };
+  map.on('zoomend', zoomClass);
 
   // ------------------------------------------------------------------ 3D landmark badges
   const badgeLayer = L.layerGroup();
@@ -261,6 +263,109 @@
   const journeyLayer = L.layerGroup();
   const journeyLines = [];
   // Routes follow roads and rivers where they can (js/routes.js); computed lazily on first show.
+  // ---------------- journey timelines (data/journey-timelines.js)
+  // Each drawn route gets a timeline: dated stages pinned to points of the path, and the date at any
+  // point in between interpolated by distance travelled. Stays (`until`) add a pause at a stage.
+  const TL = window.ME_JOURNEY_TIMELINES || {};
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const dayNum = (s) => { const [y, m, d] = s.split('-').map(Number); return y * 360 + (m - 1) * 30 + (d - 1); }; // Shire months: 30 days
+  const fmtDay = (n, short) => { const y = Math.floor(n / 360), r = n - y * 360, m = Math.floor(r / 30), d = Math.floor(r - m * 30) + 1; return short ? `${d} ${MONTHS[m].slice(0, 3)} ${y}` : `${d} ${MONTHS[m]} T.A. ${y}`; };
+  const fmtRange = (a, b) => (b && b !== a ? `${fmtDay(a, true)} – ${fmtDay(b, true)}` : fmtDay(a, true));
+  function makeTimeline(key, path) {
+    const raw = TL[key]; if (!raw || path.length < 2) return null;
+    const cum = new Float64Array(path.length);
+    for (let i = 1; i < path.length; i++) cum[i] = cum[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+    const stages = []; let from = 0;
+    for (const e of raw) {
+      const p = Array.isArray(e.at) ? [e.at[0] * 1000, e.at[1] * 1000] : resolve(e.at);
+      if (!p) { console.warn('timeline place not found', key, e.at); continue; }
+      // nearest point from the previous stage onwards; prefer the first close approach (places visited twice)
+      let best = Infinity; for (let i = from; i < path.length; i++) best = Math.min(best, Math.hypot(path[i][0] - p[0], path[i][1] - p[1]));
+      let idx = from; for (let i = from; i < path.length; i++) if (Math.hypot(path[i][0] - p[0], path[i][1] - p[1]) <= best + 1500) { idx = i; break; }
+      from = idx;
+      const name = Array.isArray(e.at) ? null : (placeByName.get(norm(e.at)) || {}).name || e.at;
+      stages.push(Object.assign({}, e, { name, idx, s: cum[idx], d0: dayNum(e.date), d1: dayNum(e.until || e.date) }));
+    }
+    return { cum, stages, total: cum[cum.length - 1] };
+  }
+  // what is going on at distance s along the route
+  function stageAt(tl, s) {
+    const st = tl.stages;
+    const near = Math.max(1500, tl.total * 0.004);
+    for (let i = 0; i < st.length; i++) if (Math.abs(st[i].s - s) < near) return { at: st[i], i, day: st[i].d0, prev: st[i - 1], next: st[i + 1] };
+    let i = 0; while (i + 1 < st.length && st[i + 1].s < s) i++;
+    const a = st[i], b = st[i + 1];
+    if (!a || s < a.s) return { before: true, next: a, day: a ? a.d0 : null };
+    if (!b) return { after: true, prev: a, day: a.d1 };
+    const t = (s - a.s) / ((b.s - a.s) || 1);
+    return { between: true, prev: a, next: b, i, day: a.d1 + t * (b.d0 - a.d1), t };
+  }
+  const stageName = (st) => st.name || st.label || 'the road';
+  function hoverHtml(j, tl, info, back) {
+    const dot = `<span class="jt-dot" style="background:${j.color}"></span>`;
+    const who = `${dot}<b>${esc(j.short || j.name.split(':')[0])}</b>${back ? ' · way back' : ''}`;
+    const date = info.day != null ? `<span class="jt-date">${info.at ? '' : '≈ '}${fmtDay(Math.round(info.day), true)}</span>` : '';
+    let line;
+    if (info.at) line = `At <b>${esc(stageName(info.at))}</b>`;
+    else if (info.between) line = `${esc(stageName(info.prev))} → <b>${esc(stageName(info.next))}</b>`;
+    else line = esc(stageName(info.prev || info.next || {}));
+    return `<div class="jt-head">${who} ${date}</div><div class="jt-line">${line}</div><div class="jt-more">click for the story</div>`;
+  }
+  function attachTimeline(rec, line, hit, path, key, back) {
+    const tl = makeTimeline(key, path); if (!tl) return;
+    rec[back ? 'backTl' : 'tl'] = tl;
+    const tip = L.tooltip({ sticky: true, className: 'jt jt-pill', direction: 'top', offset: [0, -10], opacity: 1 });
+    hit.bindTooltip(tip);
+    let raf = 0, last = null;
+    const locate = (latlng) => {
+      const x = latlng.lng, y = latlng.lat; let bi = 0, bd = Infinity;
+      for (let i = 0; i < path.length; i += 2) { const d = (path[i][0] - x) ** 2 + (path[i][1] - y) ** 2; if (d < bd) { bd = d; bi = i; } }
+      return tl.cum[bi];
+    };
+    hit.on('mousemove', (e) => {
+      last = e.latlng; if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; const info = stageAt(tl, locate(last)); tip.setContent(hoverHtml(rec.j, tl, info, back)); });
+    });
+    hit.on('mouseover', () => line.setStyle({ weight: back ? 5 : 6.5 }));
+    hit.on('mouseout', () => line.setStyle({ weight: back ? 3.5 : 4.5 }));
+    hit.on('click', (e) => { L.DomEvent.stop(e); openJourneyStage(rec, tl, locate(e.latlng), back); });
+  }
+  let stageMarker = null;
+  function openJourneyStage(rec, tl, s, back, flyTo) {
+    const j = rec.j, info = stageAt(tl, s);
+    const cur = info.at || (info.between ? null : info.prev || info.next);
+    const i = Math.min(tl.cum.length - 1, tl.cum.findIndex(c => c >= s) < 0 ? tl.cum.length - 1 : tl.cum.findIndex(c => c >= s));
+    const path = back ? rec.backPath : rec.path, pt = path[Math.max(0, i)];
+    if (stageMarker) map.removeLayer(stageMarker);
+    stageMarker = L.circleMarker(ll(pt[0], pt[1]), { radius: 8, color: '#fff', weight: 3, fillColor: rec.j.color, fillOpacity: 1, interactive: false }).addTo(map);
+    if (flyTo) map.flyTo(ll(pt[0], pt[1]), Math.max(map.getZoom(), 7), { duration: 0.8 });
+    const date = info.day != null ? (info.at ? fmtRange(info.at.d0, info.at.d1) : '≈ ' + fmtDay(Math.round(info.day), true)) : '';
+    const ev = (st) => st && st.event ? EVENTS.find(e => e.id === st.event) : null;
+    const stageRow = (st, k, here) => `<div class="tl-stage${here ? ' here' : ''}" data-stage="${k}"><span class="tl-pin" style="border-color:${j.color}${here ? ';background:' + j.color : ''}"></span><div><div class="tl-when">${fmtRange(st.d0, st.d1)}${st.approx ? ' (approx.)' : ''}</div><div class="tl-name">${esc(stageName(st))}</div>${here ? `<div class="tl-text">${esc(st.text)}</div>` : ''}</div></div>`;
+    let now;
+    if (info.at) now = `<div class="desc"><b>${esc(stageName(info.at))}.</b> ${esc(info.at.text)}${info.at.approx ? ' <span class="muted">(date approximate)</span>' : ''}</div>`;
+    else if (info.between) now = `<div class="desc">On the way from <b>${esc(stageName(info.prev))}</b> to <b>${esc(stageName(info.next))}</b>${info.prev.leg ? ': ' + esc(info.prev.leg) : '.'}
+        <div class="muted" style="margin-top:6px">${(() => { const mi = Math.round((info.next.s - s) / 1000), dd = Math.max(0, Math.round(info.next.d0 - info.day)); return `About ${mi} mile${mi === 1 ? '' : 's'}${dd ? ` and ${dd} day${dd === 1 ? '' : 's'}` : ''} to go to ${esc(stageName(info.next))}.`; })()}</div></div>`;
+    else now = `<div class="desc">${esc((cur || {}).text || '')}</div>`;
+    const curIdx = info.at ? info.i : info.between ? info.i : -1;
+    const upcoming = info.at ? info.next : info.between ? info.next : null;
+    const evs = [ev(info.at), info.at ? null : ev(info.prev), ev(upcoming)].filter(Boolean);
+    showCard(`
+      <div class="body"><div class="cat" style="color:${j.color};font-weight:500">${esc(j.name)}${back ? ' · the way back' : ''}</div>
+        <h1>${esc(info.at ? stageName(info.at) : info.between ? `Between ${stageName(info.prev)} and ${stageName(info.next)}` : stageName(cur || {}))}</h1>
+        <div class="cat">${date}</div></div>
+      ${now}
+      ${upcoming && !info.at ? '' : upcoming ? `<div class="row"><span class="ri">⏭</span><span><b>Next:</b> ${esc(stageName(upcoming))}, ${fmtDay(upcoming.d0, true)}</span></div>` : ''}
+      ${evs.length ? `<h2>Events</h2>${[...new Set(evs)].map(eventRow).join('')}` : ''}
+      <h2>Timeline</h2>
+      <div class="tl-list">${tl.stages.map((st, k) => stageRow(st, k, k === curIdx) + (info.between && k === info.i ? `<div class="tl-you"><span style="background:${j.color}"></span>≈ ${fmtDay(Math.round(info.day), true)}: you are here</div>` : '')).join('')}</div>
+      <div class="src">Dates from the Tale of Years (Appendix B) and the text; between stages they are estimated from the distance travelled.</div>`);
+    card.querySelectorAll('[data-stage]').forEach(el => el.onclick = () => openJourneyStage(rec, tl, tl.stages[+el.dataset.stage].s, back, true));
+    card.scrollTop = 0;
+    const list = card.querySelector('.tl-list'), here = card.querySelector('.tl-you') || card.querySelector('.tl-stage.here');
+    if (list && here) list.scrollTop = Math.max(0, here.offsetTop - 60);
+  }
+
   function buildJourneys() {
     if (journeyLines.length) return;
     const toStops = (list, j) => {
@@ -281,8 +386,10 @@
       let miles = lengthOf(r.path);
       const pts = r.path.map(q => ll(q[0], q[1]));
       parts.push(L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.9, lineJoin: 'round', lineCap: 'round', interactive: false, smoothFactor: 0.6 }));
-      const line = L.polyline(pts, { color: j.color, weight: 4.5, opacity: 0.95, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.6 });
-      parts.push(line);
+      const line = L.polyline(pts, { color: j.color, weight: 4.5, opacity: 0.95, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.6, interactive: false });
+      const hit = L.polyline(pts, { color: '#000', weight: 18, opacity: 0, smoothFactor: 0.6, className: 'jt-hit' }); // generous hover target
+      parts.push(line, hit);
+      const rec = { j, path: r.path, on: true };
       // the way back, where it differs from the way out: dashed
       let backMiles = 0;
       if (j.back) {
@@ -290,15 +397,22 @@
         backMiles = lengthOf(br.path);
         const bpts = br.path.map(q => ll(q[0], q[1]));
         parts.push(L.polyline(bpts, { color: '#ffffff', weight: 6, opacity: 0.75, lineJoin: 'round', lineCap: 'round', interactive: false, smoothFactor: 0.6 }));
-        const bl = L.polyline(bpts, { color: j.color, weight: 3.5, opacity: 0.9, dashArray: '2 9', lineCap: 'round', smoothFactor: 0.6 });
-        bl.bindTooltip(`<b>${j.name}</b>: the way back<br>${j.backNote || ''}`, { sticky: true, className: 'jt' });
-        parts.push(bl);
+        const bl = L.polyline(bpts, { color: j.color, weight: 3.5, opacity: 0.9, dashArray: '2 9', lineCap: 'round', smoothFactor: 0.6, interactive: false });
+        const bhit = L.polyline(bpts, { color: '#000', weight: 18, opacity: 0, smoothFactor: 0.6, className: 'jt-hit' });
+        parts.push(bl, bhit);
+        rec.backPath = br.path;
+        if (TL[j.id + ':back']) attachTimeline(rec, bl, bhit, br.path, j.id + ':back', true);
+        else bhit.bindTooltip(`<b>${j.name}</b>: the way back<br>${j.backNote || ''}`, { sticky: true, className: 'jt' });
       }
-      line.bindTooltip(`<b>${j.name}</b>${j.back ? ': the way out' : ''}<br>${j.book}<br>about ${Math.round(miles / 10) * 10} miles`, { sticky: true, className: 'jt' });
+      if (TL[j.id]) attachTimeline(rec, line, hit, r.path, j.id, false);
+      else hit.bindTooltip(`<b>${j.name}</b><br>${j.book}<br>about ${Math.round(miles / 10) * 10} miles`, { sticky: true, className: 'jt' });
+      // small, quiet dots at the dated stages (only when zoomed in enough to have room)
+      if (rec.tl) for (const st of rec.tl.stages) { const q = r.path[st.idx]; parts.push(L.circleMarker(ll(q[0], q[1]), { radius: 2.5, color: '#fff', weight: 1.5, fillColor: j.color, fillOpacity: 1, interactive: false, className: 'jt-stage' })); }
       for (const [s, k] of [[stops[0], 0], [stops[stops.length - 1], 1]]) parts.push(L.circleMarker(ll(s.x, s.y), { radius: k ? 6 : 5, color: '#fff', weight: 2, fillColor: j.color, fillOpacity: 1, interactive: false }));
       const grp = L.layerGroup(parts);
       // a round trip counts the outward road twice except where the way back differs
-      journeyLines.push({ j, grp, on: true, miles: j.back ? miles + backMiles + (miles - lengthOf(r.path.slice(0, nearestIndex(r.path, toStops(j.back, j).slice(-1)[0])))) : miles });
+      rec.grp = grp;
+      journeyLines.push(Object.assign(rec, { miles: j.back ? miles + backMiles + (miles - lengthOf(r.path.slice(0, nearestIndex(r.path, toStops(j.back, j).slice(-1)[0])))) : miles }));
       journeyLayer.addLayer(grp);
     });
   }
@@ -327,7 +441,7 @@
   function setJourneys(on) {
     state.journeys = on;
     document.getElementById('opt-journeys').checked = on;
-    if (on) { buildJourneys(); journeyLayer.addTo(map); showLegend('journeys'); } else { map.removeLayer(journeyLayer); if (legendMode === 'journeys') hideLegend(); }
+    if (on) { buildJourneys(); journeyLayer.addTo(map); showLegend('journeys'); } else { map.removeLayer(journeyLayer); if (stageMarker) { map.removeLayer(stageMarker); stageMarker = null; } if (legendMode === 'journeys') hideLegend(); }
     chip('journeys', on);
   }
   let thumbTimer;
@@ -353,7 +467,7 @@
     selMarker = L.marker(ll(x, y), { zIndexOffset: 1000, interactive: false, icon: L.divIcon({ className: '', iconSize: [27, 43], iconAnchor: [13.5, 43],
       html: '<svg width="27" height="43" viewBox="0 0 27 43"><path d="M13.5 42c-1-5-4-10-8-15A13 13 0 1 1 21.5 27c-4 5-7 10-8 15z" fill="#ea4335" stroke="#a50e0e"/><circle cx="13.5" cy="13.5" r="4.5" fill="#a50e0e"/></svg>' }) }).addTo(map);
   }
-  function closeCard() { card.hidden = true; card.innerHTML = ''; clearBtn.hidden = true; searchBtn.hidden = false; if (selMarker) { map.removeLayer(selMarker); selMarker = null; } }
+  function closeCard() { if (stageMarker) { map.removeLayer(stageMarker); stageMarker = null; } card.hidden = true; card.innerHTML = ''; clearBtn.hidden = true; searchBtn.hidden = false; if (selMarker) { map.removeLayer(selMarker); selMarker = null; } }
   clearBtn.onclick = () => { searchEl.value = ''; closeCard(); };
   const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function photoZoom(p) {
@@ -509,7 +623,7 @@
     legendMode = mode;
     legend.hidden = false;
     if (mode === 'journeys') {
-      legend.innerHTML = `<h3>Journeys</h3>${journeyLines.map((r, i) => `<div class="jr${r.on ? '' : ' off'}" data-j="${i}"><span class="sw" style="background:${r.j.color}"></span><div><div>${esc(r.j.name)}</div><div style="color:#70757a;font-size:11px">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</div></div></div>`).join('')}<div class="note">Solid: the way there. Dashed: a different way back (Bilbo). Routes follow roads and rivers where the story does; overland stretches are approximate. Click to show or hide.</div>`;
+      legend.innerHTML = `<h3>Journeys</h3>${journeyLines.map((r, i) => `<div class="jr${r.on ? '' : ' off'}" data-j="${i}"><span class="sw" style="background:${r.j.color}"></span><div><div>${esc(r.j.name)}</div><div style="color:#70757a;font-size:11px">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</div></div></div>`).join('')}<div class="note">Hover a route to see where and when; click it for the story. Solid: the way there; dashed: a different way back (Bilbo). Routes follow roads and rivers where the story does; overland stretches are approximate. Click to show or hide.</div>`;
       legend.querySelectorAll('.jr').forEach(el => el.onclick = () => {
         const r = journeyLines[+el.dataset.j]; r.on = !r.on;
         if (r.on) journeyLayer.addLayer(r.grp); else journeyLayer.removeLayer(r.grp);
@@ -599,6 +713,7 @@
   eventLayer.addTo(map);
   updateEventPins();
   updateBadges();
+  zoomClass();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideSuggest(); if (measure) mbox.querySelector('#m-clear').click(); } });
   // menu -> about card
   document.getElementById('menu-btn').onclick = () => {
@@ -608,5 +723,5 @@
       <div class="desc" style="font-size:12px;color:#70757a">${PLACES.filter(p => p.curated).length} described places · ${EVENTS.length} events · ${window.ME_JOURNEYS.length} journeys.<br>
       Terrain: Arda 32k DEM (CC BY 4.0) · Vectors: ME-GIS · Map library: Leaflet. Middle-earth is the creation of J.R.R. Tolkien; this is a non-commercial fan project. See README.md to contribute.</div>`);
   };
-  ME.map = map; ME.places = PLACES; ME.events = EVENTS; ME.openPlace = openPlace; ME.setMode = setMode;
+  ME.map = map; ME.places = PLACES; ME.journeyLines = journeyLines; ME.events = EVENTS; ME.openPlace = openPlace; ME.setMode = setMode;
 })();
