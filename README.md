@@ -17,7 +17,9 @@ the western sea) that runs entirely in the browser, with two modes:
 the map, to fly around a modelled scene set on our real terrain and imagery. The scenes are Bag End
 and Hobbiton, Barad-dûr with the Eye, Orthanc and the Ring of Isengard, Rivendell, Caras Galadhon,
 the Front Gate of Erebor with Dale, Moria's West-gate with the Doors of Durin, the Bridge of
-Khazad-dûm with Gandalf and the Balrog, the Entmoot in Derndingle, Minas Tirith and the Argonath.
+Khazad-dûm with Gandalf and the Balrog, the Entmoot in Derndingle, Minas Tirith, the Argonath and
+Edoras with Meduseld. The buildings, statues, trees and figures are detailed models built in
+headless Blender with scanned CC0 textures and rocks (see *3D landmarks* below).
 In satellite mode the same models are rendered from straight above and laid over the map from
 zoom 12, so the map shows real roofs, towers and shadows there.
 
@@ -26,6 +28,7 @@ zoom 12, so the map shows real roofs, towers and shadows there.
 | ![](docs/3d/baradDur.jpg) | ![](docs/3d/isengard.jpg) | ![](docs/3d/bridge.jpg) |
 | ![](docs/3d/rivendell.jpg) | ![](docs/3d/argonath.jpg) | ![](docs/3d/minasTirith.jpg) |
 | ![](docs/3d/carasGaladhon.jpg) | ![](docs/3d/moriaGate.jpg) | ![](docs/3d/derndingle.jpg) |
+| ![](docs/3d/edoras.jpg) | ![](docs/3d/erebor.jpg) | ![](docs/3d/bagEnd.jpg) |
 
 On top of both: Google-style labels with collision handling, search with autocomplete, place cards
 (each with a **film still from Peter Jackson's trilogies** where one exists, or a rendered aerial
@@ -194,7 +197,43 @@ is interpolated by distance along the drawn route.
 
 ### 3D landmarks
 
-* `web/js/three/kit.js`: the modelling kit. It holds procedural canvas textures (ashlar, rock, roof
+**Models (Blender).** The detailed models are built by Python scripts in `tools/blender/` that run in
+headless Blender 4.1. Nothing is modelled by hand, so every model can be changed in code and rebuilt.
+
+* `melib.py`: the modelling library. It has PBR materials wired to Poly Haven texture sets, a mesh
+  builder (boxes, cylinders, lofts, prisms, gable roofs) that gives every face world-scale box UVs,
+  skin-modifier figures, recursive trees with alpha leaf cards, and import and decimation of
+  scanned models.
+* `assets_kit.py`: the shared **kit**. It holds the material library (stone, obsidian, marble,
+  plaster, thatch, slate, planks, bark…), six tree species (oak, conifer, autumn, mallorn,
+  white), and decimated scans: a crag (used for every cliff lump), shrubs and ferns (forest
+  undergrowth) and a dead trunk (Isengard's felled trees). Scenes pick the materials up by name and
+  scatter the trees and scans as instanced meshes. A few textures are derived from the scans
+  (`fetch_polyhaven.py`): white ashlar for Gondor, dark slate, and silver bark for the mallorns.
+* `assets_hero.py`: Orthanc (four faceted piers that end in horns, the 27-step stair, the
+  balcony) and Barad-dûr (buttressed tiers, a spiked shaft and the forked iron crown).
+* `assets_hero2.py`: hobbit holes (Bag End with bench, lantern and gate), cottages and the mill;
+  Rivendell's halls and towers; Gondor houses and the White Tower; Rohan houses and Meduseld;
+  dwarf statues, Erebor's gate, the Doors of Durin (glowing ithildin), Khazad-dûm's pillars and
+  bridge; the Balrog, Gandalf, an Ent and the Argonath kings.
+* `build_models.py` writes grouped GLBs to `build_tmp/models/` (models in a group share
+  textures). `tools/pack_models.py` then wraps each one as `web/models/<group>.js`
+  (`ME3D_MODEL("name", "<base64>")`), so they load from `file://` too.
+* `web/js/three/assets.js` loads them (`ME3D.loadKit`, `ME3D.loadModel`, `ME3D.scatter`).
+  Builders still contain the older procedural shapes as fallbacks.
+* Preview a single model: `node tools/test/model_preview.js <group>/<name>` (a 2×2 studio sheet).
+
+```bash
+tools/download_models.sh   # Blender 4.1.1 + Poly Haven textures/models -> sources/ (~500 MB download, 1.7 GB unpacked)
+B=sources/blender/blender-4.1.1-linux-x64/blender
+$B -b --factory-startup -P tools/blender/build_models.py -- hobbiton figures   # or no args: all groups
+python3 tools/pack_models.py
+```
+
+**Scenes (three.js).**
+
+* `web/js/three/kit.js`: the scene kit. Materials come from the Blender kit when it is loaded; it also
+  holds procedural canvas textures used as fallbacks (ashlar, rock, roof
   tiles, slate, thatch, planks, grass, bark, the ithildin Doors of Durin), materials, and parts:
   houses with gable or hip roofs, towers, crenellated walls, segmental arch bridges, trees
   (deciduous, conifer, mallorn), noise-displaced rock, tapered tubes for horns, tentacles and
@@ -205,7 +244,12 @@ is interpolated by distance along the drawn route.
   slopes), and `build(ctx)`. The builder gets the shaped ground height and the real rivers
   crossing the scene, so models sit on our terrain.
 * `web/js/three/view3d.js`: the viewer. It builds the terrain mesh from the same worker pipeline
-  as the map tiles (`ME.terrainPatch`), with our satellite imagery as texture. It adds sky, a sun
+  as the map tiles (`ME.terrainPatch`), with our satellite imagery as texture. Close up, the ground is
+  splatted with tiled CC0 photo textures (`web/models/ground.js`: meadow, grass, rock, bare earth),
+  chosen by slope and by how green the satellite colour is, and used as ratios to their mean colour
+  so the 3D ground keeps the map's hue. A builder can declare `bare(x, z)` (0–1) for ground with no
+  grass, such as Isengard's scorched plain.
+  It adds a sky dome (sun glow, drifting fBm clouds), a sun
   with soft shadows, an environment map, fog and orbit controls. It also renders the
   orthographic top-down views that become map overlays (`ME3D.OverlayLayer`).
 * To attach a model to a place, add `model: '<builderId>'` to its entry in
@@ -246,6 +290,7 @@ Roads on the tiles are also corner-smoothed (Chaikin) before drawing.
 | 2026-11-20 | Label zoom thresholds lowered across the board, and rivers and named roads drawn from z2–z5. | Side-by-sides showed Arda's maps naming three to five times as many features at the same scale. Collision handling keeps it readable. |
 | 2026-11-20 | Journeys routed on roads and rivers and smoothed. | Straight waypoint-to-waypoint lines looked artificial and ignored the roads the travellers actually used. |
 | 2026-11-20 | Landmarks are **real 3D models** built procedurally with three.js and shown two ways: an orbitable 3D view, and top-down renders overlaid on the satellite map at z12+. | The 2D canvas drawings read as "sloppy cubes". Procedural models need no asset downloads or licences, can be tuned in code, sit on the real DEM, and the same model feeds both the 3D view and the map. three.js r160 is vendored as the UMD build, so it still works from `file://`. |
+| 2026-11-21 | Landmark buildings, statues, figures and trees are **built in headless Blender** from Python scripts, textured with CC0 Poly Haven scans, and shipped as base64 GLB scripts (~21 MB, loaded only when a 3D view or overlay needs them). | three.js primitives had reached their limit: no real textures, bevels or organic shapes. Blender scripts keep everything reproducible and editable in code, and CC0 assets need no attribution or licence tracking. |
 | 2026-11-20 | **Journey audit**: every leg checked with `journey_audit.js` and on the map against the books. Frodo's Old Forest, Strider's route via the Chetwood, the Sirannon approach to Moria, the Nen Hithoel crossing, the Morgai trench and Isenmouthe; Aragorn's Dol Baran, Calembel and Linhir; Bilbo's Elf-path, barrels and boat up the Long Lake; Gandalf's beacon ride; the Rohirrim's Stonewain Valley. Lake-town moved into the Long Lake. | Waypoints had been placed by eye. Combined with broken road snapping, that produced detours (e.g. Henneth Annûn to the Cross-roads via Osgiliath) and lines that ignored the story. |
 | 2026-11-21 | Journeys are **opt-in checkboxes**, and choices live on the chips; phones get **bottom sheets**. | On phones the old journeys legend and the place card covered most of the map, and all six journeys appeared at once. |
 | 2026-11-21 | **Journey timelines** shown as a hover pill plus a click-to-expand card, not as labels on the map. | It keeps the map uncluttered: the only permanent additions are tiny stage dots, hidden below zoom 6. A wide invisible hit-line makes the thin routes easy to hover. |
@@ -301,7 +346,7 @@ Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
 
 ### Repository notes
 
-* `sources/`, `build_tmp/`, `.venv/` and `tools/test/node_modules/` are ignored (see `.gitignore`).
+* `sources/` (including Blender and the Poly Haven downloads), `build_tmp/`, `.venv/` and `tools/test/node_modules/` are ignored (see `.gitignore`).
 * `web/tiles/terrain/` is about 235 MB of generated data. Either commit it with Git LFS, or publish
   it as a release asset and have contributors run the build.
 
@@ -319,9 +364,12 @@ Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
 * A z7 terrain level, or a lossy detail layer, for sharper valleys at zoom 8–11.
 * Rivers are lines. The Anduin's lower course and the Ethir delta deserve polygons with sandbars.
 * Desert dunes, wadis and oases in Harad; vineyards in Dorwinion; Nurn's slave-fields as a grid.
-* More landmarks: Dol Amroth castle, Moria's West-gate with the holly trees, Rivendell's
-  waterfalls, Erebor's Front Gate and Dale, Dunharrow's switchbacks, the Hornburg in a proper
-  gorge, Cirith Ungol's stair, the Grey Havens quays.
+* More landmarks: Dol Amroth castle, Dunharrow's switchbacks, the Hornburg in a proper gorge,
+  Cirith Ungol's stair, the Grey Havens quays.
+* The 3D figures (Gandalf, the Balrog, the Ents) are built from skin-modifier skeletons and are
+  still stylised. Sculpted figures would look better, as would Dale's houses and Isengard's
+  workshops, which are still drawn by three.js. The models weigh about 21 MB (loaded on demand);
+  KTX2/WebP textures could halve that.
 * Kingdom borders (dashed lines in map mode) and a time slider (e.g. Isengard flooded after
   3 March 3019, Osgiliath before the ruin).
 * "Directions" between places along roads, with travel time on foot, pony or horse.
@@ -339,7 +387,9 @@ Bundled data and libraries keep their own licenses:
 * **Map features (rivers, roads, towns, names):** [ME-GIS](https://github.com/andrewheiss/ME-GIS)
   by monks, SeerBlue, Redrobes, jvangeld and others. They have no formal license; the authors
   approve most personal and educational use, so ask them for anything else.
-* **Libraries:** Leaflet 1.9.4 (BSD-2-Clause) and three.js r160 (MIT), in `web/vendor/`.
+* **Libraries:** Leaflet 1.9.4 (BSD-2-Clause), three.js r160 and its GLTFLoader (MIT), in `web/vendor/`.
+* **3D textures, ground textures and scanned rocks, shrubs, ferns and the dead trunk:** [Poly Haven](https://polyhaven.com), **CC0**
+  (public domain). The models themselves are this project's own (MIT).
 * **Film stills** are linked from the LOTR Fandom wiki, not included here.
 
 Middle-earth and everything in it is the creation of **J.R.R. Tolkien**. This is a non-commercial

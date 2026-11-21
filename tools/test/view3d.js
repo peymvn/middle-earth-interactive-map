@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
   await page.waitForFunction(() => window.ME3D && ME3D.ready, null, { timeout: 120000 }).catch(() => errs.push('timeout'));
   console.log(id, 'ready in', Date.now() - t0, 'ms');
   await page.waitForTimeout(+wait);
-  await page.screenshot({ path: out, timeout: 120000 });
+  await page.screenshot({ path: out, timeout: 400000 });
   console.log(errs.join('\n'));
   await browser.close();
 })();

@@ -22,7 +22,7 @@ window.ME_SETTLEMENTS = [
   { name: 'Mount Doom', x: 1223200, y: 1338200, special: 'mountDoom' }, // the cone is in the DEM; we add the crater and lava
   { site: 'Morannon', special: 'blackGate' },
   { name: 'Argonath', x: 1086000, y: 1239200, special: 'argonath', model: 'argonath' },
-  { site: 'Edoras', special: 'edoras' },
+  { site: 'Edoras', special: 'edoras', model: 'edoras' },
   { site: "Helm's Deep", special: 'helmsDeep' },
   { site: 'Caras Galadhon', special: 'carasGaladhon', model: 'carasGaladhon', places: ['Caras Galadhon', 'Lothlórien'] },
   { name: 'Esgaroth', x: 1273000, y: 870000, special: 'laketown' }, // on piles in the lake, near its western shore

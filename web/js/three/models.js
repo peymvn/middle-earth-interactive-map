@@ -12,6 +12,31 @@
   const T = THREE;
   const { MAT, TEX, mesh, house, tower, wall, archBridge, tree, rockLump, glowSprite, smoke, waterfall, taperTube, flatWater, n3 } = ME3D;
   const B = {};
+  // a named asset from a Blender model group (web/models/<group>.js), cloned, or null
+  function asset(ctx, group, name) {
+    const sc = ctx.models && ctx.models[group]; if (!sc) return null;
+    const o = sc.getObjectByName(name); if (!o) return null;
+    const c = o.clone(true); c.position.set(0, 0, 0); return c;
+  }
+  // recolour a named material on a clone (e.g. hobbit doors); materials are shared, so copy first
+  function recolor(obj, matName, color) {
+    obj.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m, i) => { if (m.name === matName) { const c = m.clone(); c.color.set(color); if (Array.isArray(o.material)) o.material[i] = c; else o.material = c; } }); });
+    return obj;
+  }
+  // instanced copies of any object (all its meshes): list of [x, y, z, rotY, scale]
+  function instances(src, list) {
+    const g = new T.Group(); if (!src || !list.length) return g;
+    src.updateMatrixWorld(true);
+    const base = new T.Matrix4().copy(src.matrixWorld).invert(), m4 = new T.Matrix4(), q = new T.Quaternion(), up = new T.Vector3(0, 1, 0);
+    src.traverse(o => {
+      if (!o.isMesh) return;
+      const local = new T.Matrix4().multiplyMatrices(base, o.matrixWorld);
+      const im = new T.InstancedMesh(o.geometry, o.material, list.length);
+      list.forEach(([x, y, z, r, s], i) => { q.setFromAxisAngle(up, r || 0); m4.compose(new T.Vector3(x, y, z), q, new T.Vector3(s || 1, s || 1, s || 1)).multiply(local); im.setMatrixAt(i, m4); });
+      im.castShadow = im.receiveShadow = true; im.userData.glb = true; im.computeBoundingSphere(); g.add(im);
+    });
+    return g;
+  }
   const at = (o, x, y, z, ry = 0, s = 1) => { o.position.set(x, y, z); o.rotation.y = ry; if (s !== 1) o.scale.setScalar(s); return o; };
   const noTop = (o) => { o.userData.noTop = true; return o; };
   const sm = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -21,6 +46,16 @@
   // a hobbit-hole: turf mound, round painted door with brass knob in a stone ring, round windows
   function smial(ctx, x, z, o = {}) {
     const { door = '#2e6b3a', r = 1.15, mound = 7, face = 0, chimney = false, garden = false, R } = o;
+    const hero = mound >= 12;
+    const mdl = asset(ctx, 'hobbiton', hero ? 'smial_bagend' : 'smial');
+    if (mdl) {
+      const g = new T.Group();
+      const k = hero ? 1 : mound / 7.5;
+      mdl.scale.setScalar(k); recolor(mdl, 'door', door); g.add(mdl);
+      if (chimney || hero) { const sm = smoke(16, R, 'rgba(230,230,230,0.55)', 30, 3, 5); sm.position.set(3.5 * k, (hero ? 9.0 : 6) * k, -5.5 * k); g.add(sm); }
+      g.position.set(x, ctx.ground(x, z) - 0.3, z); g.rotation.y = face;
+      return g;
+    }
     const g = new T.Group();
     const m = mesh(new T.SphereGeometry(mound, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), MAT.grass('#5e8a3c', ['#e8d24a', '#d0503a', '#f4f0e8'])); m.scale.y = 0.5; g.add(m);
     const front = mound * 0.9;
@@ -120,8 +155,46 @@
     g.userData.animate = (t) => { g.rotation.z = Math.sin(t * 0.5 + ph) * 0.025; arms.forEach((a, i) => { a.rotation.x = Math.sin(t * 0.7 + ph + i * 2) * 0.22; a.rotation.z = (i ? -1 : 1) * (0.15 + 0.1 * Math.sin(t * 0.4 + ph)); }); };
     return g;
   }
+  // tree kinds of the kit (tools/blender/assets_kit.py) by the leaf colours callers ask for
+  function kitTree(col, conifer, mallorn, R) {
+    if (mallorn) return 'tree_mallorn';
+    if (conifer) return 'tree_conifer';
+    const c = new T.Color(col), hsl = {}; c.getHSL(hsl);
+    if (hsl.h < 0.14 && hsl.s > 0.35) return 'tree_autumn';
+    return R() < 0.5 ? 'tree_oak' : 'tree_oak2';
+  }
+  const KIT_TREE_H = { tree_oak: 14, tree_oak2: 11, tree_conifer: 18, tree_autumn: 13, tree_mallorn: 60, tree_white: 10 };
+  // one big kit tree (the Party Tree, the holly-trees of Moria, the White Tree), or the drawn one without the kit
+  function oneTree(part, h, R, drawn) {
+    const t = ME3D.part(part);
+    if (!t) return tree(drawn, R);
+    t.scale.setScalar(h / KIT_TREE_H[part]); t.rotation.y = R() * 6.28;
+    return t;
+  }
   function forest(g, ctx, R, n, area, opts) {
     const { cols = ['#3e6430', '#46702e', '#557d34'], conifer = 0.2, h = [8, 16], avoid = () => false, mallorn = false } = opts || {};
+    if (ME3D.kitNodes) {
+      const lists = {};
+      for (let k = 0; k < n; k++) {
+        const [x, z] = area(R); if (avoid(x, z)) continue;
+        const kind = kitTree(R.pick(cols), R() < conifer, mallorn, R);
+        (lists[kind] = lists[kind] || []).push([x, ctx.ground(x, z) - 0.3, z, R() * 6.28, R.r(h[0], h[1]) / KIT_TREE_H[kind]]);
+      }
+      for (const [kind, list] of Object.entries(lists)) { const s = ME3D.scatter(kind, list); if (s) g.add(s); }
+      // undergrowth: scanned shrubs and ferns around the trunks (not under mallorns, which grow on clear lawns)
+      if (!mallorn) {
+        const under = { shrub: [], fern: [] };
+        for (const list of Object.values(lists)) for (const [x, , z] of list) {
+          for (let k = 0; k < 2; k++) {
+            if (R() < 0.45) continue;
+            const a = R() * 6.28, r = R.r(2, 6), ux = x + Math.cos(a) * r, uz = z + Math.sin(a) * r;
+            under[R() < 0.6 ? 'shrub' : 'fern'].push([ux, ctx.ground(ux, uz) - 0.1, uz, R() * 6.28, R.r(0.9, 1.8)]);
+          }
+        }
+        for (const [kind, list] of Object.entries(under)) { const s = ME3D.scatter(kind, list); if (s) g.add(s); }
+      }
+      return;
+    }
     for (let k = 0; k < n; k++) {
       const [x, z] = area(R); if (avoid(x, z)) continue;
       const t = tree({ kind: mallorn ? 'mallorn' : R() < conifer ? 'conifer' : 'oak', h: R.r(h[0], h[1]), leaf: R.pick(cols) }, R); at(t, x, ctx.ground(x, z) - 0.3, z, R() * 6); g.add(t);
@@ -132,11 +205,11 @@
 
   // ================================================================ Bag End & Hobbiton
   B.bagEnd = {
-    info: { radius: 520 },
+    info: { radius: 520, models: ['hobbiton'] },
     build(ctx) {
       const { R } = ctx, g = new T.Group();
       // the Water (real river line, which crosses the scene ~170 m north of the Hobbiton map point)
-      const water = ctx.rivers.find(r => r.pts.some(([x, z]) => Math.abs(x) < 200)) || { pts: [[-600, -175], [600, -175]], width: 14 };
+      const water = ctx.rivers.find(r => r.pts.some(([x, z]) => Math.abs(x) < 200)) || { pts: Array.from({ length: 61 }, (_, i) => [-600 + i * 20, -175]), width: 14 };
       const wz = (x) => { let best = water.pts[0]; for (const p of water.pts) if (Math.abs(p[0] - x) < Math.abs(best[0] - x)) best = p; return best[1]; };
       const level = Math.min(...water.pts.filter(([x]) => Math.abs(x) < 300).map(([x, z]) => ctx.ground(x, z))) + 0.4;
       const wpts = water.pts.map(([x, z]) => [x, z + Math.sin(x / 55) * 10]);
@@ -144,7 +217,7 @@
       // The Hill rises north of the Water. Bag End sits near its top with its garden and the great tree above
       const bz = wz(0) - 120;
       g.add(smial(ctx, 0, bz, { door: '#2c6a38', r: 1.35, mound: 13, chimney: true, garden: true, R }));
-      const big = tree({ kind: 'oak', h: 22, leaf: '#4b7a32' }, R); at(big, 4, ctx.ground(4, bz - 16), bz - 16); g.add(big);
+      const big = oneTree('tree_oak', 22, R, { kind: 'oak', h: 22, leaf: '#4b7a32' }); at(big, 4, ctx.ground(4, bz - 16), bz - 16); g.add(big);
       const sign = mesh(new T.BoxGeometry(1.6, 0.6, 0.06), MAT.planks('#a07850')); sign.position.set(2.2, ctx.ground(2.2, bz + 24) + 1.3, bz + 24); g.add(sign);
       const post = mesh(new T.CylinderGeometry(0.06, 0.06, 1.3, 6), MAT.planks('#6a4a2a')); post.position.set(2.2, ctx.ground(2.2, bz + 24) + 0.65, bz + 24); g.add(post);
       // Bagshot Row below Bag End
@@ -163,7 +236,7 @@
       const br = archBridge({ span: 18, width: 4, n: 2, rise: 2.6, m: MAT.greyStone() }); at(br, 2, level - 0.8, wz(2), Math.PI / 2); g.add(br);
       // the Mill with its water-wheel
       const mx = 34, mz = wz(34) - 14;
-      const mill = house({ w: 9, d: 15, h: 7, roofH: 5, wallMat: MAT.planks('#8a6a46'), roofMat: MAT.thatch('#b9944f'), chimney: true }); at(mill, mx, ctx.ground(mx, mz), mz, 0.05); g.add(mill);
+      const mill = asset(ctx, 'hobbiton', 'mill') || house({ w: 9, d: 15, h: 7, roofH: 5, wallMat: MAT.planks('#8a6a46'), roofMat: MAT.thatch('#b9944f'), chimney: true }); at(mill, mx, ctx.ground(mx, mz), mz, 0.05); g.add(mill);
       const wheel = new T.Group();
       const rim = mesh(new T.TorusGeometry(3.8, 0.25, 6, 24), MAT.planks('#5a3b22')); wheel.add(rim);
       for (let k = 0; k < 12; k++) { const sp = mesh(new T.BoxGeometry(0.2, 7.4, 0.6), MAT.planks('#6a4a2a')); sp.rotation.z = k * Math.PI / 6; wheel.add(sp); }
@@ -172,7 +245,7 @@
       g.add(wheel);
       // the Party Field and the Party Tree, with the pavilion
       const px = 170, pz = bz + 40;
-      const pt = tree({ kind: 'oak', h: 30, leaf: '#4b7a32' }, R); at(pt, px, ctx.ground(px, pz), pz); g.add(pt);
+      const pt = oneTree('tree_oak', 30, R, { kind: 'oak', h: 30, leaf: '#4b7a32' }); at(pt, px, ctx.ground(px, pz), pz); g.add(pt);
       const pav = new T.Group();
       const canopy = mesh(new T.ConeGeometry(11, 5, 12), MAT.paint('#f3ecd8')); canopy.position.y = 7; pav.add(canopy);
       for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; const pole = mesh(new T.CylinderGeometry(0.12, 0.12, 4.6, 5), MAT.planks('#8a6a46')); pole.position.set(Math.cos(a) * 10, 2.3, Math.sin(a) * 10); pav.add(pole); }
@@ -181,6 +254,8 @@
       // Bywater: thatched round cottages across the Water, with gardens and hedges
       for (let k = 0; k < 26; k++) {
         const x = R.r(-460, 460), z = wz(x) + R.r(45, 300);
+        const cm = asset(ctx, 'hobbiton', 'cottage');
+        if (cm) { recolor(cm, 'door', R.pick(doors)); at(cm, x, ctx.ground(x, z) - 0.2, z, R.r(-0.5, 0.5) + Math.PI, R.r(0.85, 1.1)); g.add(cm); continue; }
         const c = new T.Group(), rr = R.r(3.5, 5);
         const walls = mesh(new T.CylinderGeometry(rr, rr, 3.2, 18), MAT.plaster(R.pick(['#efe3c6', '#e8dcc0', '#f3ead6']))); walls.position.y = 1.6; c.add(walls);
         const roof = mesh(new T.ConeGeometry(rr * 1.35, rr * 1.1, 18), MAT.thatch('#b9944f')); roof.position.y = 3.2 + rr * 0.55; c.add(roof);
@@ -220,39 +295,21 @@
     return s;
   }
   B.baradDur = {
-    info: { radius: 700 },
+    info: { radius: 700, models: ['barad_dur'] },
     build(ctx) {
       const { R } = ctx, g = new T.Group(), y0 = ctx.ground(0, 0);
       const ob = MAT.obsidian(), ds = MAT.darkStone();
-      // stepped, buttressed foundations
-      let y = y0;
-      for (const [r, h] of [[170, 60], [135, 55], [105, 50]]) {
-        const c = mesh(new T.CylinderGeometry(r * 0.92, r, h, 8), ds); c.position.y = y + h / 2; g.add(c);
-        for (let f = 0; f < 8; f++) { const a = f / 8 * Math.PI * 2; const b = mesh(new T.BoxGeometry(14, h * 1.4, r * 0.35), ob); b.position.set(Math.cos(a) * r * 0.98, y + h * 0.45, Math.sin(a) * r * 0.98); b.rotation.set(0, -a, 0); b.rotateZ(0.25); g.add(b); }
-        y += h;
-      }
-      // the shaft: tapering, fluted, studded with outward-raking spikes
-      let r = 80;
-      for (let k = 0; k < 10; k++) {
-        const h = 44, r2 = r * 0.91;
-        const c = mesh(new T.CylinderGeometry(r2, r, h, 8), ob); c.position.y = y + h / 2; g.add(c);
-        for (let f = 0; f < 8; f++) {
-          const a = f / 8 * Math.PI * 2 + Math.PI / 8;
-          const fin = mesh(new T.BoxGeometry(6, h * 1.02, r * 0.5), ds); fin.position.set(Math.cos(a) * r * 0.93, y + h / 2, Math.sin(a) * r * 0.93); fin.rotation.y = -a; g.add(fin);
-          if (k % 2 === 1) g.add(taperTube([V3(Math.cos(a) * r * 1.1, y + h * 0.5, Math.sin(a) * r * 1.1), V3(Math.cos(a) * (r + 22), y + h * 0.75, Math.sin(a) * (r + 22)), V3(Math.cos(a) * (r + 40), y + h * 1.3, Math.sin(a) * (r + 40))], 3.5, 0.3, ob, 5, 8));
+      let top;
+      if (ctx.models.barad_dur) {
+        const tw = ctx.models.barad_dur.clone(true); tw.position.set(0, y0, 0); g.add(tw);
+        top = y0 + 610; // top of the shaft in the Blender model (tools/blender/assets_hero.py); the Eye floats in the crown
+      } else {
+        let y = y0;
+        for (const [r, h] of [[170, 60], [135, 55], [105, 50]]) {
+          const c = mesh(new T.CylinderGeometry(r * 0.92, r, h, 8), ds); c.position.y = y + h / 2; g.add(c); y += h;
         }
-        const ledge = mesh(new T.CylinderGeometry(r2 * 1.08, r2 * 1.08, 3, 8), ds); ledge.position.y = y + h; g.add(ledge);
-        y += h; r = r2;
-      }
-      // the crown: two great curved horns rising around the Eye, with barbs
-      const top = y;
-      for (const s of [-1, 1]) {
-        const pts = [V3(s * r * 0.7, top - 10, 0), V3(s * r * 0.95, top + 60, 0), V3(s * r * 0.85, top + 150, -6), V3(s * r * 0.45, top + 230, -4), V3(s * r * 0.15, top + 270, 4)];
-        g.add(taperTube(pts, 24, 1.2, ob, 9, 40));
-        for (let k = 1; k < 7; k++) {
-          const p = new T.CatmullRomCurve3(pts).getPointAt(k / 7);
-          g.add(taperTube([p, V3(p.x + s * 14, p.y + 8, p.z + R.r(-6, 6)), V3(p.x + s * 30, p.y + 26, p.z + R.r(-10, 10))], 4, 0.3, ob, 5, 8));
-        }
+        const c = mesh(new T.CylinderGeometry(40, 80, 440, 8), ob); c.position.y = y + 220; g.add(c);
+        top = y + 440;
       }
       const eye = eyeSprite(110); eye.position.set(0, top + 120, 0); g.add(eye);
       const halo = glowSprite('rgba(255,110,25,0.75)', 320); halo.position.copy(eye.position); g.add(halo);
@@ -290,24 +347,15 @@
 
   // ================================================================ Orthanc & the Ring of Isengard
   B.isengard = {
-    info: { radius: 900 },
+    info: { radius: 900, models: ['orthanc'] },
+    // the plain inside the Ring: trees felled, ground scorched and pitted
+    bare: (x, z) => 1 - sm(760, 830, Math.hypot(x, z)),
     build(ctx) {
       const { R } = ctx, g = new T.Group(), y0 = ctx.ground(0, 0);
       const ob = MAT.obsidian();
-      // Orthanc: four faceted piers fused into one many-sided tower, cleft at the top into four horns
-      const H = 150;
-      const core = mesh(new T.CylinderGeometry(17, 21, H, 12), ob); core.position.y = y0 + H / 2; g.add(core);
-      for (let k = 0; k < 4; k++) {
-        const a = k * Math.PI / 2 + Math.PI / 4, cx = Math.cos(a) * 15, cz = Math.sin(a) * 15;
-        const p = mesh(new T.CylinderGeometry(13, 17, H, 5), ob); p.position.set(cx, y0 + H / 2, cz); p.rotation.y = a; g.add(p);
-        for (let f = 0; f < 3; f++) { const rib = mesh(new T.BoxGeometry(2.4, H, 2.4), ob); const fa = a + (f - 1) * 0.6; rib.position.set(cx + Math.cos(fa) * 15.5, y0 + H / 2, cz + Math.sin(fa) * 15.5); rib.rotation.y = -fa + Math.PI / 4; g.add(rib); }
-        g.add(taperTube([V3(cx * 0.9, y0 + H - 8, cz * 0.9), V3(cx * 1.25, y0 + H + 14, cz * 1.25), V3(cx * 1.15, y0 + H + 34, cz * 1.15), V3(cx * 0.75, y0 + H + 52, cz * 0.75)], 11, 0.6, ob, 7, 20));
-      }
-      const plat = mesh(new T.CylinderGeometry(20, 20, 2, 16), MAT.darkStone()); plat.position.y = y0 + H; g.add(plat);
-      // the great stair of 27 steps and the door, a balcony above it
-      for (let k = 0; k < 27; k++) { const st = mesh(new T.BoxGeometry(18, 1, 2.2), MAT.darkStone()); st.position.set(0, y0 + 0.5 + k, 24 + 27 * 2.2 - k * 2.2); g.add(st); }
-      const door = mesh(new T.BoxGeometry(6, 11, 1), MAT.glow('#3a1a08', 0.8)); door.position.set(0, y0 + 32.5, 21.5); g.add(door);
-      const balc = mesh(new T.BoxGeometry(10, 1, 4), MAT.darkStone()); balc.position.set(0, y0 + 46, 22); g.add(balc);
+      // Orthanc (Blender model; its stair and door face east)
+      if (ctx.models.orthanc) { const o = ctx.models.orthanc.clone(true); o.position.set(0, y0, 0); g.add(o); }
+      else { const core = mesh(new T.CylinderGeometry(17, 21, 150, 12), ob); core.position.y = y0 + 75; g.add(core); }
       // the ring-wall, with dwellings cut into its inner face, and the southern arch-gate
       const RR = 836, pts = [];
       for (let k = 0; k <= 120; k++) { const a = Math.PI / 2 + 0.05 + k / 120 * (Math.PI * 2 - 0.1); pts.push([Math.cos(a) * RR, Math.sin(a) * RR]); }
@@ -332,7 +380,12 @@
         } else {
           const fx = house({ w: R.r(10, 18), d: R.r(16, 30), h: R.r(6, 12), roof: R() < 0.5 ? 'flat' : 'gable', wallMat: MAT.darkStone(), roofMat: MAT.slate('#3c3f44'), chimney: true }); at(fx, x, gy, z, a); g.add(fx);
         }
-        if (R() < 0.5) { const stump = mesh(new T.CylinderGeometry(1.2, 1.6, 1.4, 8), MAT.bark('#4e3d2c')); stump.position.set(x + R.r(-30, 30), gy + 0.5, z + R.r(-30, 30)); g.add(stump); }
+        if (R() < 0.5) {
+          // felled trees: scanned dead trunks where the kit has them, else plain stumps
+          const sx = x + R.r(-30, 30), sz = z + R.r(-30, 30), dt = ME3D.part('dead_tree');
+          if (dt) { at(dt, sx, ctx.ground(sx, sz) - 0.2, sz, R() * 6.28, R.r(0.8, 1.3)); g.add(dt); }
+          else { const stump = mesh(new T.CylinderGeometry(1.2, 1.6, 1.4, 8), MAT.bark('#4e3d2c')); stump.position.set(sx, gy + 0.5, sz); g.add(stump); }
+        }
       }
       return { group: g, cam: { dist: 330, elev: 0.2, azim: 0.35, lookY: 95 }, sky: 'dusk' };
     },
@@ -361,7 +414,7 @@
     return g;
   }
   B.rivendell = {
-    info: { radius: 520 },
+    info: { radius: 520, models: ['rivendell'] },
     // the hidden valley: a deep, steep-sided cleft running west-east with the Bruinen in its floor
     shape: (x, z) => { const zc = 30 * Math.sin(x / 160); const d = Math.abs(z - zc); return -150 * (1 - sm(70, 260, d + 18 * n3(x / 60, 0, z / 60, 3))); },
     build(ctx) {
@@ -374,12 +427,16 @@
       const halls = [[0, -62, 28, 16, 12, 0], [40, -80, 18, 12, 10, 0.25], [-40, -74, 20, 12, 10, -0.2], [12, -110, 16, 10, 13, 0.1], [-26, -40, 12, 10, 8, -0.4], [70, -56, 14, 9, 8, 0.5], [-74, -100, 16, 10, 10, -0.15], [96, -100, 12, 9, 9, 0.4]];
       for (const [x, z, w, d, h, ry] of halls) {
         const gy = ctx.ground(x, z);
-        const terrace = mesh(new T.BoxGeometry(w + 12, 30, d + 14), MAT.plaster('#e6dcc6')); terrace.position.set(x, gy - 14, z + 2); terrace.rotation.y = ry; g.add(terrace);
+        const terrace = mesh(new T.BoxGeometry(w + 12, 30, d + 14), MAT.whiteStone('#e6dcc6')); terrace.position.set(x, gy - 14, z + 2); terrace.rotation.y = ry; g.add(terrace);
+        const hm = asset(ctx, 'rivendell', 'elf_hall');
+        if (hm) { at(hm, x, gy + 1, z, ry, w / 22); g.add(hm); continue; }
         const p = elvenHall(R, w, d, h, R.pick(['#4f7a6e', '#5d8a78', '#6e7a5a']), '#efe6d2'); at(p, x, gy + 1, z, ry); g.add(p);
       }
       // slender towers with curved caps
-      for (const [x, z, h] of [[22, -96, 36], [-52, -88, 28], [84, -76, 24], [-8, -132, 30]]) {
+      for (const [x, z, h] of [[46, -116, 36], [-52, -92, 28], [84, -76, 24], [-14, -92, 30]]) {
         const gy = ctx.ground(x, z);
+        const tm = asset(ctx, 'rivendell', 'elf_tower');
+        if (tm) { const base = mesh(new T.CylinderGeometry(4.6, 5.4, 16, 12), MAT.whiteStone()); base.position.set(x, gy - 6, z); g.add(base); at(tm, x, gy + 1.5, z, 0, h / 30); g.add(tm); continue; }
         const t = tower({ r: 3, h, m: MAT.plaster('#efe6d2'), roof: 'none', crenel: false, sides: 12 }); at(t, x, gy, z); g.add(t);
         const cap = mesh(new T.LatheGeometry([0, 0.25, 0.5, 0.75, 1].map((t2) => new T.Vector2(Math.max(0.01, 4.4 * (1 - t2) * (1 - t2 * 0.35)), t2 * 10)), 12), MAT.slate('#4f7a6e')); cap.position.set(x, gy + h, z); g.add(cap);
       }
@@ -387,8 +444,7 @@
       for (const x of [-60, 30]) { const b = archBridge({ span: 30, width: 3, n: 1, rise: 9, m: MAT.plaster('#efe6d2') }); at(b, x, floor + 1.5, zc(x), Math.PI / 2); g.add(b); }
       // waterfalls tumbling over the valley walls on both sides
       for (const [x, s] of [[-180, -1], [-60, 1], [120, -1], [210, 1], [-260, 1]]) {
-        const z = zc(x) + s * 150, top = ctx.ground(x, z), bot = ctx.ground(x, zc(x) + s * 60);
-        g.add(noTop(waterfall(10, Math.max(20, top - bot), x, bot, zc(x) + s * 95, s > 0 ? Math.PI : 0)));
+        g.add(noTop(ME3D.cascade(ctx.ground, x, zc(x) + s * 205, zc(x) + s * 22, 6)));
       }
       // autumn woods on the slopes and the heights
       const cols = ['#b8742c', '#c9a13a', '#8a5a2a', '#6d8a3a', '#a34a2a', '#d0b050', '#3d5e34', '#4a6a3a'];
@@ -399,7 +455,7 @@
 
   // ================================================================ Erebor: the Front Gate
   B.erebor = {
-    info: { radius: 800 },
+    info: { radius: 800, models: ['dwarves'] },
     // the Lonely Mountain's southern spur: the mountain rises steeply north of the gate
     shape: (x, z) => { const r = Math.hypot(x, z + 760); return 820 * Math.pow(Math.max(0, 1 - r / 760), 1.15) * (1 + 0.15 * n3(x / 120, 0, z / 120, 5)); },
     build(ctx) {
@@ -425,13 +481,15 @@
       // the colossal dwarf guardians with axes, carved from the mountain
       for (const s of [-1, 1]) {
         const plinth = mesh(new T.BoxGeometry(26, 14, 26), MAT.greyStone()); plinth.position.set(s * 58, y0 + 7, gz + 8); g.add(plinth);
+        const dm = asset(ctx, 'dwarves', 'dwarf_statue');
+        if (dm) { at(dm, s * 58, y0 + 14, gz + 8, 0, 14.5); g.add(dm); continue; }
         const c = colossus({ h: 92, m: MAT.rock('#958d82'), crown: false, raised: false, beard: true, axe: true, wide: 1.4 }); at(c, s * 58, y0 + 14, gz + 8, 0); g.add(c);
       }
       // the great stair, the Running River issuing from the gate under a stone bridge, the road to Dale
       for (let k = 0; k < 16; k++) { const st = mesh(new T.BoxGeometry(66 - k * 1.5, 0.8, 3), MAT.greyStone()); st.position.set(0, y0 - 6 + k * 0.4, gz + 60 - k * 3); g.add(st); }
       const river = [[26, gz + 2]]; for (let z = gz + 30; z <= 800; z += 30) river.push([26 + Math.sin(z / 110) * 24 + (z - gz) * 0.05, z]);
       g.add(noTop(ME3D.waterRibbon(river, 9, ctx.ground, 0.6)));
-      const br = archBridge({ span: 20, width: 7, n: 1, rise: 6, m: MAT.greyStone() }); at(br, 30, ctx.ground(30, 90) - 1, 90, Math.PI / 2); g.add(br);
+      const rbx = 26 + Math.sin(90 / 110) * 24 + (90 - gz) * 0.05; const br = archBridge({ span: 20, width: 7, n: 1, rise: 6, m: MAT.greyStone() }); at(br, rbx, ctx.ground(rbx, 90) - 1, 90, 0); g.add(br);
       // Dale: walled town of tall gabled houses and towers in the valley below
       const dz = 560, dx = 40;
       const dwall = []; for (let k = 0; k <= 40; k++) { const a = k / 40 * Math.PI * 2; dwall.push([dx + Math.cos(a) * 150, dz + Math.sin(a) * 110]); }
@@ -448,26 +506,34 @@
 
   // ================================================================ Moria: the West-gate and the Doors of Durin
   B.moriaGate = {
-    info: { radius: 320 },
+    info: { radius: 320, models: ['dwarves'] },
     shape: (x, z) => 60 * sm(40, 160, x),
     build(ctx) {
       const { R } = ctx, g = new T.Group(), y0 = ctx.ground(-8, 0);
       // the sheer cliff face
       for (let k = 0; k < 16; k++) { const z = -300 + k * 40; if (Math.abs(z) < 60) continue; const l = rockLump(R.r(40, 60), R, '#625e5c', 2.2); l.position.set(60 + R.r(0, 25), y0 + R.r(20, 60), z); g.add(noTop(l)); }
+      const mg0 = ctx.models.dwarves;
       // the cliff: a wall of tall rock slabs, smooth-faced around the doors where the Dwarves dressed it
       for (let k = -12; k <= 12; k++) {
         const z = k * 9, hh = 110 + 30 * Math.abs(n3(k * 0.4, 0, 0, 3)) + Math.abs(k) * 2, dx = Math.abs(k) < 3 ? 0 : R.r(0, 4);
-        const slab = mesh(new T.BoxGeometry(30, hh, 9.4), MAT.rock(Math.abs(k) < 3 ? '#8a8682' : '#6e6a66')); slab.position.set(20.5 + dx, y0 + hh / 2 - 6, z); g.add(noTop(slab));
+        const slab = mesh(new T.BoxGeometry(30, hh, 9.4), MAT.rock(Math.abs(k) < 3 ? '#8a8682' : '#6e6a66')); slab.position.set(20.5 + dx + (Math.abs(k) < 3 && mg0 ? 1.2 : 0), y0 + hh / 2 - 6, z); g.add(noTop(slab));
       }
       // the Doors: ithildin drawn on the stone, waking in starlight
       const doorTex = TEX.durin();
       const dm = new T.MeshStandardMaterial({ color: '#232326', emissive: '#cde8ff', emissiveMap: doorTex, emissiveIntensity: 1.8, roughness: 0.6 });
-      const door = mesh(new T.PlaneGeometry(22, 22), dm, false, true); door.position.set(5.2, y0 + 11, 0); door.rotation.y = -Math.PI / 2; g.add(door);
+      const mg = asset(ctx, 'dwarves', 'moria_gate');
+      let door;
+      if (mg) {
+        // the Blender gate faces west; animate its ithildin glow
+        at(mg, 6.4, y0, 0, 0, 1.2); g.add(mg); door = new T.Object3D(); g.add(door);
+        const ith = []; mg.traverse(o => { if (o.isMesh && o.material.name === 'ithildin') { o.material = o.material.clone(); Object.assign(o.material, { transparent: true, blending: T.AdditiveBlending, depthWrite: false }); o.material.color.set('#000000'); o.castShadow = false; ith.push(o.material); } });
+        door.userData.animate = (t) => ith.forEach(m => { m.emissiveIntensity = 1.6 + 0.6 * Math.sin(t * 1.3); });
+      } else { door = mesh(new T.PlaneGeometry(22, 22), dm, false, true); door.position.set(5.2, y0 + 11, 0); door.rotation.y = -Math.PI / 2; g.add(door); }
       door.userData.animate = (t) => { dm.emissiveIntensity = 1.4 + 0.5 * Math.sin(t * 1.3); };
       const dl = new T.PointLight('#bfe3ff', 4, 80, 1.5); dl.position.set(-6, y0 + 9, 0); g.add(dl);
       // the stair, the two holly trees of Eregion
       for (let k = 0; k < 6; k++) { const st = mesh(new T.BoxGeometry(4, 0.6, 18), MAT.greyStone()); st.position.set(-2 - k * 3, y0 - k * 0.6, 0); g.add(st); }
-      for (const s of [-1, 1]) { const h = tree({ kind: 'oak', h: 15, leaf: '#1f4426' }, R); at(h, -8, ctx.ground(-8, s * 14), s * 14); g.add(h); }
+      for (const s of [-1, 1]) { const h = oneTree('tree_oak2', 15, R, { kind: 'oak', h: 15, leaf: '#1f4426' }); at(h, -8, ctx.ground(-8, s * 14), s * 14); g.add(h); }
       // the dark pool and the Watcher's tentacles reaching from the water
       const pool = mesh(new T.CircleGeometry(110, 48), new T.MeshStandardMaterial({ color: '#07100f', roughness: 0.05, metalness: 0.5 }), false, true); pool.rotation.x = -Math.PI / 2; pool.position.set(-160, y0 - 3, 10); g.add(noTop(pool));
       const tm = new T.MeshStandardMaterial({ color: '#2e3a26', roughness: 0.4, metalness: 0.1 });
@@ -484,13 +550,13 @@
       g.add(noTop(new T.Points(starGeo, new T.PointsMaterial({ color: '#ffffff', size: 2, sizeAttenuation: false, fog: false }))));
       const moon = glowSprite('rgba(220,230,255,0.9)', 600); moon.position.set(-6000, 4000, -3000); g.add(noTop(moon));
       forest(g, ctx, R, 50, rect(-300, -30, -280, 280), { cols: ['#26402c', '#2e4a32', '#22382a'], conifer: 0.8, avoid: (x, z) => Math.hypot(x + 160, z - 10) < 118 || (x > -80 && Math.abs(z) < 60) });
-      return { group: g, cam: { dist: 85, elev: 0.14, azim: -Math.PI / 2 + 0.45, lookY: 11, target: [-20, 0] }, sky: 'night' };
+      return { group: g, cam: { dist: 62, elev: 0.12, azim: -Math.PI / 2 + 0.38, lookY: 12, target: [-4, 0] }, sky: 'night' };
     },
   };
 
   // ================================================================ the Bridge of Khazad-dûm
   B.bridgeKhazadDum = {
-    info: { radius: 160, interior: true },
+    info: { radius: 160, interior: true, models: ['dwarves', 'figures'] },
     build(ctx) {
       const { R } = ctx, g = new T.Group();
       const stone = MAT.rock('#6a625a');
@@ -498,6 +564,8 @@
       for (const side of [-1, 1]) { const f = mesh(new T.BoxGeometry(200, 8, 320), stone); f.position.set(side * 113, -4, 0); g.add(f); }
       for (let i = -4; i <= 4; i++) for (const side of [-1, 1]) for (const row of [0, 1]) {
         const x = side * (40 + row * 36), z = i * 34;
+        const pm = asset(ctx, 'dwarves', 'dwarf_pillar');
+        if (pm) { at(pm, x, 0, z, 0, 110 / 60); g.add(pm); continue; }
         const p = mesh(new T.CylinderGeometry(4, 5, 110, 10), stone); p.position.set(x, 55, z); g.add(p);
         const cap = mesh(new T.CylinderGeometry(10, 4, 10, 10), stone); cap.position.set(x, 110, z); g.add(cap);
       }
@@ -511,9 +579,14 @@
       embers.userData.animate = (t) => embers.children.forEach(e => { const f = (t * 0.1 + e.userData.ph) % 1; e.position.set(e.userData.x + Math.sin(t + e.userData.ph * 9) * 3, -90 + f * 150, e.userData.z); e.material.opacity = 1 - f; });
       g.add(embers);
       // the slender bridge: one arch, no kerb or rail, fifty feet long, across the chasm (east-west)
-      const bridge = archBridge({ span: 26, width: 1.2, n: 1, rise: 2.5, m: stone, deck: 0.7 }); bridge.children.slice(1).forEach(c => c.visible = false); bridge.position.set(0, -3.2, 0); g.add(bridge);
+      const kb = asset(ctx, 'dwarves', 'khazad_bridge');
+      if (kb) { at(kb, 0, -0.4, 0); g.add(kb); }
+      else { const bridge = archBridge({ span: 26, width: 1.2, n: 1, rise: 2.5, m: stone, deck: 0.7 }); bridge.children.slice(1).forEach(c => c.visible = false); bridge.position.set(0, -3.2, 0); g.add(bridge); }
       // Gandalf on the bridge, staff raised, light blazing
       const gand = new T.Group();
+      const gM = asset(ctx, 'figures', 'gandalf');
+      if (gM) gand.add(gM);
+      else {
       const robe = mesh(new T.ConeGeometry(0.5, 1.6, 12), MAT.paint('#9a9ca2')); robe.position.y = 0.8; gand.add(robe);
       const head = mesh(new T.SphereGeometry(0.17, 10, 8), MAT.paint('#d8c8b0')); head.position.y = 1.72; gand.add(head);
       const hat = mesh(new T.ConeGeometry(0.4, 0.95, 12), MAT.paint('#7a7c82')); hat.position.y = 2.15; gand.add(hat);
@@ -521,6 +594,7 @@
       const beard = mesh(new T.ConeGeometry(0.16, 0.6, 8), MAT.paint('#e8e8e8')); beard.rotation.x = Math.PI; beard.position.set(0.12, 1.45, 0); gand.add(beard);
       const staff = mesh(new T.CylinderGeometry(0.035, 0.035, 2.3, 6), MAT.bark('#6a5030')); staff.position.set(0.45, 1.5, 0); staff.rotation.z = -0.15; gand.add(staff);
       const sword = mesh(new T.BoxGeometry(0.05, 1.1, 0.08), MAT.paint('#dfe6ee')); sword.position.set(0.1, 1.2, 0.35); sword.rotation.x = 0.4; gand.add(sword);
+      }
       const sl = glowSprite('rgba(240,248,255,1)', 4); sl.position.set(0.62, 2.7, 0); gand.add(sl);
       const wl = new T.PointLight('#e6f0ff', 10, 80, 1.4); wl.position.set(0.62, 2.8, 0); gand.add(wl);
       wl.userData.animate = (t) => { wl.intensity = 9 + 3 * Math.sin(t * 3.1); sl.scale.setScalar(4 + Math.sin(t * 3.1)); };
@@ -530,6 +604,9 @@
       // dark body with cracks of fire: an emissive map of glowing veins on black
       const veins = ME3D.canvasTex('veins', 128, 256, (c, w, h, R2) => { c.fillStyle = '#000'; c.fillRect(0, 0, w, h); c.strokeStyle = '#ff7a20'; c.shadowColor = '#ff4000'; c.shadowBlur = 6; for (let i = 0; i < 40; i++) { c.lineWidth = R2.r(1, 3); c.beginPath(); let x = R2() * w, y = R2() * h; c.moveTo(x, y); for (let k = 0; k < 6; k++) { x += R2.r(-14, 14); y += R2.r(-20, 20); c.lineTo(x, y); } c.stroke(); } });
       const fireMat = new T.MeshStandardMaterial({ color: '#0e0606', emissive: '#ffffff', emissiveMap: veins, emissiveIntensity: 1.6, roughness: 0.9, flatShading: true });
+      const balM = asset(ctx, 'figures', 'balrog');
+      if (balM) { balM.position.y = -4.5; bal.add(balM); }
+      else {
       bal.add(taperTube([V3(0, 0, 0), V3(0, 4, 0.5), V3(0, 8, 0)], 2.4, 1.6, fireMat, 9, 10));
       for (const s of [-1, 1]) {
         bal.add(taperTube([V3(s * 0.8, 0, 0), V3(s * 1.4, -3, 0.5), V3(s * 1.6, -6, 1)], 1, 0.6, fireMat, 7, 8));
@@ -542,21 +619,22 @@
       }
       const headB = mesh(new T.ConeGeometry(1.3, 2.8, 8), MAT.obsidian()); headB.position.y = 10.3; bal.add(headB);
       for (const s of [-1, 1]) { const eye = mesh(new T.SphereGeometry(0.22, 8, 6), MAT.glow('#ffd040', 4), false, false); eye.position.set(s * 0.45, 10.4, 1.05); bal.add(eye); }
+      }
       bal.add(taperTube([V3(-4.5, 2, 4), V3(-8, -2, 8), V3(-14, 1, 6), V3(-18, -3, 2)], 0.35, 0.08, MAT.lava(), 6, 30));
-      const flames = new T.Group(); for (let k = 0; k < 40; k++) { const f = glowSprite('rgba(255,100,20,0.8)', R.r(3, 7)); f.userData.ph = R(); flames.add(f); }
-      flames.userData.animate = (t) => flames.children.forEach((f, i) => { const a = i * 2.4 + t * 0.6; f.position.set(Math.cos(a) * 2.8, ((t * 0.5 + f.userData.ph) % 1) * 14 - 2, Math.sin(a) * 2); });
+      const flames = new T.Group(); for (let k = 0; k < (balM ? 16 : 40); k++) { const f = glowSprite(balM ? 'rgba(255,90,20,0.38)' : 'rgba(255,100,20,0.8)', R.r(3, 7) * (balM ? 0.8 : 1)); f.userData.ph = R(); flames.add(f); }
+      flames.userData.animate = (t) => flames.children.forEach((f, i) => { const a = i * 2.4 + t * 0.6; f.position.set(Math.cos(a) * 2.8, ((t * 0.5 + f.userData.ph) % 1) * 14 - 2, Math.sin(a) * 2 - (balM ? 2.5 : 0)); });
       bal.add(flames);
       const bl = new T.PointLight('#ff5010', 18, 120, 1.3); bl.position.set(0, 6, 3); bal.add(bl);
       bal.position.set(16, 4, 0); bal.rotation.y = -Math.PI / 2; g.add(bal);
       const rim = new T.DirectionalLight('#ffb070', 1.4); rim.position.set(30, -20, 10); g.add(rim);
       const cool = new T.PointLight('#9fc0ff', 6, 60, 1.2); cool.position.set(-12, 8, 8); g.add(cool);
-      return { group: g, cam: { dist: 30, elev: 0.06, azim: -1.15, lookY: 3, target: [6, 0] }, sky: 'cave' };
+      return { group: g, cam: { dist: 44, elev: 0.1, azim: 0.42, lookY: 4, target: [4, 0] }, sky: 'cave' };
     },
   };
 
   // ================================================================ Derndingle: the Entmoot
   B.derndingle = {
-    info: { radius: 300 },
+    info: { radius: 300, models: ['figures'] },
     shape: (x, z) => -32 * (1 - sm(40, 120, Math.hypot(x, z))),
     build(ctx) {
       const { R } = ctx, g = new T.Group();
@@ -568,6 +646,16 @@
       const n = 16;
       for (let k = 0; k < n; k++) {
         const a = k / n * Math.PI * 2, x = Math.cos(a) * 32, z = Math.sin(a) * 32;
+        const em = asset(ctx, 'figures', 'ent');
+        if (em) {
+          // each Ent a little different in size and colouring; sway gently as they talk
+          const sc = (k === 0 ? 17 : R.r(11, 15)) / 14, ph = R() * 6;
+          if (k % 3 === 1) recolor(em, 'entBark', '#c9b79a'); else if (k % 3 === 2) recolor(em, 'entBark', '#9c8f7e');
+          const wrap = new T.Group(); wrap.add(em); em.scale.setScalar(sc);
+          at(wrap, x, ctx.ground(x, z), z, -a - Math.PI / 2 + Math.PI); g.add(wrap);
+          wrap.userData.animate = (t) => { em.rotation.z = Math.sin(t * 0.5 + ph) * 0.025; em.rotation.x = Math.sin(t * 0.37 + ph) * 0.02; };
+          continue;
+        }
         const e = ent(R, k === 0 ? 17 : R.r(11, 15), R.pick(barks), R.pick(leaves)); at(e, x, ctx.ground(x, z), z, -a - Math.PI / 2); g.add(e);
       }
       // the hobbits watching from the edge
@@ -578,7 +666,7 @@
 
   // ================================================================ Minas Tirith
   B.minasTirith = {
-    info: { radius: 820 },
+    info: { radius: 820, models: ['gondor'] },
     build(ctx) {
       const { R } = ctx, g = new T.Group();
       const M = 1.609344, cx = -200 * M, r0 = 430 * M, step = 0.122;
@@ -596,8 +684,17 @@
         for (let r = rIn + 9; r < rOut - 8; r += 12) for (let a = a0 + 0.05; a < a1 - 0.05; a += 11 / r) {
           if (Math.abs(a) < 0.06 && k > 0) continue;
           if (R() < 0.1) continue;
-          houses.push([cx + Math.cos(a) * r, Math.sin(a) * r, a, R.r(7, 10), R.r(8, 12), R.r(7, 14)]);
+          houses.push([cx + Math.cos(a) * r, Math.sin(a) * r, a, R.r(7, 10), R.r(8, 12), R.r(7, 14), R() < 0.25 + k * 0.1]);
         }
+      }
+      const gh = asset(ctx, 'gondor', 'gondor_house'), gh2 = asset(ctx, 'gondor', 'gondor_house2');
+      if (gh) {
+        // two house types (8 x 11 m with a hip roof; 7 x 9 m, three storeys with a roof terrace, more of them
+        // on the steep upper circles); fronts face out from the city
+        const tall = houses.filter(h => h[6] && gh2), low = houses.filter(h => !(h[6] && gh2));
+        g.add(instances(gh, low.map(([x, z, a, w, d]) => [x, ctx.ground(x, z), z, -a - Math.PI / 2, (w + d) / 19])));
+        if (gh2) g.add(instances(gh2, tall.map(([x, z, a, w, d]) => [x, ctx.ground(x, z), z, -a - Math.PI / 2, (w + d) / 17])));
+        houses.length = 0;
       }
       const bodyGeo = new T.BoxGeometry(1, 1, 1); bodyGeo.translate(0, 0.5, 0);
       const roofGeo = new T.ConeGeometry(Math.SQRT1_2, 1, 4, 1, false, Math.PI / 4); roofGeo.translate(0, 0.5, 0);
@@ -623,13 +720,23 @@
       const prow = mesh(pg, MAT.rock('#d8d2c4')); prow.position.y = ctx.ground(cx + r0 * 0.9, 0) - 10; g.add(prow);
       // the citadel
       const ci = cx + r0 * 0.1, yc = ctx.ground(ci, 0);
-      const wt = tower({ r: 8, h: 100, m: MAT.whiteStone(), roofMat: MAT.paint('#e8ecef'), crenel: true, sides: 16 }); at(wt, ci - 30, yc, 0); g.add(wt);
-      const pin = mesh(new T.ConeGeometry(2.4, 26, 10), MAT.paint('#f5f7f8')); pin.position.set(ci - 30, yc + 128, 0); g.add(pin);
+      const wtm = asset(ctx, 'gondor', 'white_tower');
+      if (wtm) { at(wtm, ci - 30, yc, 0); g.add(wtm); }
+      else { const wt = tower({ r: 8, h: 100, m: MAT.whiteStone(), roofMat: MAT.paint('#e8ecef'), crenel: true, sides: 16 }); at(wt, ci - 30, yc, 0); g.add(wt); const pin = mesh(new T.ConeGeometry(2.4, 26, 10), MAT.paint('#f5f7f8')); pin.position.set(ci - 30, yc + 128, 0); g.add(pin); }
       const banner = mesh(new T.PlaneGeometry(6, 10), new T.MeshStandardMaterial({ color: '#111', side: T.DoubleSide })); banner.position.set(ci - 30 + 3.5, yc + 136, 0); g.add(banner);
       banner.userData.animate = (t) => { banner.rotation.y = Math.sin(t * 2) * 0.3; };
-      const kh = house({ w: 24, d: 44, h: 18, roof: 'hip', roofH: 10, wallMat: MAT.whiteStone(), roofMat: MAT.slate('#59606b') }); at(kh, ci - 64, yc, 0, Math.PI / 2); g.add(kh);
-      const court = mesh(new T.CylinderGeometry(26, 26, 0.6, 32), MAT.grass('#6e9a52')); court.position.set(ci + 20, yc + 0.3, 0); g.add(court);
-      const wtree = tree({ kind: 'oak', h: 11, leaf: '#f4f6f2', trunk: '#d8d4c8' }, R); at(wtree, ci + 24, yc, 0); g.add(wtree);
+      const chm = asset(ctx, 'gondor', 'citadel_hall');
+      if (chm) { at(chm, ci - 72, ctx.ground(ci - 72, 0), 0, Math.PI / 2); g.add(chm); }
+      else { const kh = house({ w: 24, d: 44, h: 18, roof: 'hip', roofH: 10, wallMat: MAT.whiteStone(), roofMat: MAT.slate('#59606b') }); at(kh, ci - 64, yc, 0, Math.PI / 2); g.add(kh); }
+      // the Citadel's paved top, with the Court of the Fountain: a lawn, the fountain and the White Tree
+      const rTop = r0 * (1 - 6 * step) - 4, pv = [], pidx = [], NA = 40, NR = 14;
+      for (let i = 0; i <= NR; i++) for (let j = 0; j <= NA; j++) { const r = rTop * i / NR, a = a0 + (a1 - a0) * j / NA, x = cx + Math.cos(a) * r, z = Math.sin(a) * r; pv.push(x, ctx.ground(x, z) + 0.35, z); }
+      for (let i = 0; i < NR; i++) for (let j = 0; j < NA; j++) { const p0 = i * (NA + 1) + j; pidx.push(p0, p0 + 1, p0 + NA + 1, p0 + 1, p0 + NA + 2, p0 + NA + 1); }
+      const pgeo = new T.BufferGeometry(); pgeo.setAttribute('position', new T.Float32BufferAttribute(pv, 3)); pgeo.setIndex(pidx); pgeo.computeVertexNormals();
+      g.add(mesh(pgeo, MAT.greyStone(), false, true));
+      const court = mesh(new T.CylinderGeometry(16, 16, 0.5, 32), MAT.grass('#6e9a52')); court.position.set(ci + 24, ctx.ground(ci + 24, 0) + 0.5, 0); g.add(court);
+      const basin = mesh(new T.CylinderGeometry(3, 3.3, 1, 24), MAT.whiteStone()); basin.position.set(ci + 10, ctx.ground(ci + 10, 0) + 0.9, 0); g.add(basin);
+      const wtree = oneTree('tree_white', 11, R, { kind: 'oak', h: 11, leaf: '#f4f6f2', trunk: '#d8d4c8' }); at(wtree, ci + 24, ctx.ground(ci + 24, 0) + 0.6, 0); g.add(wtree);
       const gx = cx + r0 + 4;
       for (const s of [-1, 1]) { const t = tower({ r: 10, h: 44, m: MAT.whiteStone(), roofMat: MAT.slate('#59606b') }); at(t, gx, ctx.ground(gx, s * 16), s * 16); g.add(t); }
       const gate = mesh(new T.BoxGeometry(4, 22, 18), MAT.paint('#1f2226')); gate.position.set(gx + 3, ctx.ground(gx, 0) + 11, 0); g.add(gate);
@@ -639,18 +746,20 @@
 
   // ================================================================ the Argonath
   B.argonath = {
-    info: { radius: 480 },
+    info: { radius: 480, models: ['figures'] },
     // the gorge: the Anduin runs north-south between sheer cliffs
     shape: (x, z) => -45 * (1 - sm(60, 105, Math.abs(x))) + 120 * sm(130, 190, Math.abs(x) + 25 * n3(0, z / 80, x > 0 ? 1 : 2, 2)),
     build(ctx) {
       const { R } = ctx, g = new T.Group();
-      const level = Math.min(...[-300, -100, 0, 100, 300].map(z => ctx.ground(0, z))) + 2;
+      const level = Math.max(...[-300, -150, 0, 150, 300].map(z => ctx.ground(0, z))) + 3;
       const river = []; for (let z = -620; z <= 620; z += 40) river.push([Math.sin(z / 200) * 6, z]);
       g.add(noTop(flatWater(river, 230, level)));
       // the Pillars of the Kings, each on a rock in the river at the gorge's edge, left hand raised
       for (const s of [-1, 1]) {
         const x = s * 72;
         const ped = mesh(new T.CylinderGeometry(26, 34, 40, 12), MAT.rock('#77726a')); ped.position.set(x, level + 8, 0); g.add(ped);
+        const km = asset(ctx, 'figures', 'king_statue');
+        if (km) { at(km, x, level + 26, 0, Math.PI, 13.5); km.scale.x *= -s; g.add(km); continue; }
         const k = colossus({ h: 135, m: MAT.rock('#aba597'), crown: true, raised: true, axe: true, wide: 1 }); at(k, x, level + 28, 0, Math.PI); k.scale.x = s; g.add(k);
       }
       for (let k = 0; k < 22; k++) { const s = k % 2 ? 1 : -1, z = -560 + Math.floor(k / 2) * 105; const l = rockLump(R.r(40, 65), R, '#77726a', 2.0); l.position.set(s * R.r(165, 200), ctx.ground(s * 180, z) - 45, z); g.add(noTop(l)); }
@@ -661,7 +770,7 @@
 
   // ================================================================ Caras Galadhon
   B.carasGaladhon = {
-    info: { radius: 500 },
+    info: { radius: 500, models: [] },
     shape: (x, z) => 28 * (1 - sm(150, 420, Math.hypot(x, z))),
     build(ctx) {
       const { R } = ctx, g = new T.Group();
@@ -671,13 +780,17 @@
       g.add(wall(pts.slice(0, 66), { h: 9, t: 6, m: MAT.grass('#5a7a3a'), merlons: false }, ctx.ground));
       // the mallorns: huge silver-grey trunks, golden crowns, flets ringed with lamps, stairs winding up
       const lampMat = MAT.glow('#bfe0ff', 2.2);
+      const kitM = ME3D.kitNodes && ME3D.kitNodes.tree_mallorn, mlist = [];
       for (let k = 0; k < 90; k++) {
         const a = R() * Math.PI * 2, r = k === 0 ? 0 : Math.sqrt(R.r(0.02, 1)) * 400, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = ctx.ground(x, z);
         const H = k === 0 ? 110 : R.r(55, 85), tr = H * 0.035;
         const t = new T.Group();
+        if (kitM) mlist.push([x, gy - 0.5, z, R() * 6.28, H / KIT_TREE_H.tree_mallorn]);
+        else {
         t.add(taperTube([V3(0, -1, 0), V3(R.r(-1, 1), H * 0.5, R.r(-1, 1)), V3(0, H, 0)], tr * 1.4, tr * 0.4, MAT.bark('#c8c4b8'), 10, 12));
         for (let b = 0; b < 6; b++) { const ba = R() * 6.28, by = H * R.r(0.55, 0.85); t.add(taperTube([V3(0, by, 0), V3(Math.cos(ba) * H * 0.12, by + H * 0.08, Math.sin(ba) * H * 0.12), V3(Math.cos(ba) * H * 0.2, by + H * 0.18, Math.sin(ba) * H * 0.2)], tr * 0.4, tr * 0.1, MAT.bark('#c8c4b8'), 6, 8)); }
         for (let c = 0; c < 9; c++) { const s = H * R.r(0.1, 0.17); const bl = mesh(new T.IcosahedronGeometry(1, 1), MAT.leaf(R.pick(gold))); bl.scale.set(s * 1.3, s * 0.7, s * 1.3); const ca = R() * 6.28, cr = H * R.r(0, 0.17); bl.position.set(Math.cos(ca) * cr, H * R.r(0.72, 1.02), Math.sin(ca) * cr); t.add(bl); }
+        }
         const nf = k === 0 ? 4 : R() < 0.6 ? 2 : 1;
         for (let f = 0; f < nf; f++) {
           const fy = H * (0.3 + f * 0.15), fr = H * R.r(0.06, 0.09) * (k === 0 ? 1.6 : 1);
@@ -690,12 +803,57 @@
         t.add(taperTube(st, 0.35, 0.35, MAT.planks('#d8d0b8'), 4, 60));
         at(t, x, gy, z); g.add(t);
       }
+      if (mlist.length) g.add(ME3D.scatter('tree_mallorn', mlist));
       // lamp glow drifting in the dusk
       for (let k = 0; k < 120; k++) { const s = glowSprite('rgba(170,210,255,0.7)', R.r(2, 4)); const a = R() * 6.28, r = R() * 400; s.position.set(Math.cos(a) * r, ctx.ground(Math.cos(a) * r, Math.sin(a) * r) + R.r(10, 60), Math.sin(a) * r); g.add(s); }
       // the fountain and Galadriel's Mirror below the hill
       const basin = mesh(new T.CylinderGeometry(1.6, 1.2, 1.2, 24), MAT.paint('#c0c4c8')); basin.position.set(60, ctx.ground(60, 80) + 0.9, 80); g.add(basin);
       const mirror = mesh(new T.CircleGeometry(1.4, 24), new T.MeshStandardMaterial({ color: '#cfe6ff', metalness: 1, roughness: 0.02, emissive: '#5a8acc', emissiveIntensity: 0.3 })); mirror.rotation.x = -Math.PI / 2; mirror.position.set(60, ctx.ground(60, 80) + 1.52, 80); g.add(mirror);
       return { group: g, cam: { dist: 300, elev: 0.18, azim: 0.6, lookY: 50 }, sky: 'dusk' };
+    },
+  };
+
+  // ================================================================ Edoras
+  B.edoras = {
+    info: { radius: 420, models: ['rohan'] },
+    // a steep green hill with a flat top for the Golden Hall
+    shape: (x, z) => 52 * (1 - sm(55, 255, Math.hypot(x, z * 1.08))) + 4 * n3(x / 90, 0, z / 90, 4),
+    build(ctx) {
+      const { R } = ctx, g = new T.Group();
+      // Meduseld on a stone platform at the top, its doors facing the stair down to the gate (south)
+      const top = ctx.ground(0, -25);
+      const plat = mesh(new T.BoxGeometry(62, 8, 82), MAT.greyStone()); plat.position.set(0, top - 2.5, -25); g.add(plat);
+      for (let k = 0; k < 8; k++) { const st = mesh(new T.BoxGeometry(14, 0.6, 1.4), MAT.greyStone()); st.position.set(0, top + 1.2 - k * 0.6, 16.7 + k * 1.4); g.add(st); }
+      const md = asset(ctx, 'rohan', 'meduseld');
+      if (md) { at(md, 0, top + 1.5, -25, Math.PI); g.add(md); }
+      // the road from the gate winds up the hill to the stair
+      const road = []; for (let t = 0; t <= 1.0001; t += 0.02) { const z = 262 - t * 236; road.push([Math.sin(t * Math.PI * 2.2) * 26 * (1 - t), z]); }
+      const rm = ME3D.waterRibbon(road, 6, ctx.ground, 0.15); rm.material = MAT.greyStone(); rm.userData.animate = null; g.add(rm);
+      const roadX = (z) => { let b = road[0]; for (const p of road) if (Math.abs(p[1] - z) < Math.abs(b[1] - z)) b = p; return b[0]; };
+      // the palisade and dike around the town, open at the gate
+      const pts = []; for (let k = 0; k <= 64; k++) { const a = k / 64 * Math.PI * 2; pts.push([Math.cos(a) * 262, Math.sin(a) * 262 * 0.93]); }
+      g.add(wall(pts.filter((p, i) => i < 14 || i > 18), { h: 6, t: 1.6, m: MAT.planks('#6a4a2a'), merlons: false }, ctx.ground));
+      for (const s2 of [-1, 1]) { const tw = tower({ r: 4, h: 13, m: MAT.planks('#6a4a2a'), roof: 'cone', roofMat: MAT.thatch('#c9a85a'), crenel: false, sides: 8 }); at(tw, s2 * 14, ctx.ground(s2 * 14, 244), 244); g.add(tw); }
+      // the halls of the Rohirrim in rings along the slope, gables to the lanes, leaving the road clear
+      const rh = asset(ctx, 'rohan', 'rohan_house');
+      const list = [];
+      for (const [r, n] of [[88, 14], [118, 20], [150, 26], [182, 30], [214, 34], [240, 34]]) {
+        for (let k = 0; k < n; k++) {
+          const a = (k + R.r(-0.25, 0.25) + (r % 2) * 0.5) / n * Math.PI * 2, x = Math.cos(a) * r, z = Math.sin(a) * r / 1.08;
+          if (Math.abs(x - roadX(z)) < 12 && z > 0) continue;
+          if (R() < 0.18) continue;
+          list.push([x, ctx.ground(x, z) - 0.4, z, -a + Math.PI / 2 + R.r(-0.08, 0.08), R.r(0.85, 1.1)]);
+        }
+      }
+      if (rh) g.add(instances(rh, list));
+      // the barrows of the kings, white with simbelmynë, along the road west of the gate
+      for (let i = 0; i < 16; i++) {
+        const side = i % 2 ? 1 : -1, x = -40 - Math.floor(i / 2) * 26, z = 320 + side * 20;
+        const b = mesh(new T.SphereGeometry(9, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), MAT.grass('#7a9a5a', ['#ffffff', '#f4f4f0', '#eef6ff'])); b.scale.y = 0.5;
+        b.position.set(x, ctx.ground(x, z) - 0.5, z); g.add(b);
+      }
+      forest(g, ctx, R, 40, rect(-400, 400, -400, 400), { avoid: (x, z) => Math.hypot(x, z) < 300, cols: ['#5a7a3a', '#6a8a42'], conifer: 0.3 });
+      return { group: g, cam: { dist: 300, elev: 0.14, azim: 0.3, lookY: 30, target: [0, -20] }, sky: 'day' };
     },
   };
 

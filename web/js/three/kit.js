@@ -114,7 +114,25 @@
 
   // ---------------------------------------------------------------- materials
   const matCache = new Map();
-  function mat(key, make) { if (!matCache.has(key)) matCache.set(key, make()); return matCache.get(key); }
+  const KITNAME = { whiteStone: 'whiteStone', greyStone: 'greyStone', darkStone: 'darkStone', obsidian: 'obsidian', rock: 'rock', tiles: 'tiles', slate: 'slate', thatch: 'thatch', planks: 'planks', plaster: 'plaster', bark: 'bark' };
+  function mat(key, make) {
+    if (!matCache.has(key)) {
+      const base = Object.keys(KITNAME).find(k => key === k || key.startsWith(k + '#'));
+      const km = base && ME3D.kitMats && ME3D.kitMats[KITNAME[base]];
+      if (km) {
+        // a tinted copy keeps the photographed texture but lets callers vary the colour a little
+        const tint = key.slice(base.length);
+        let m = km;
+        if (tint && /^#/.test(tint) && base !== 'bark') {
+          const c = new T.Color(tint), l = (c.r + c.g + c.b) / 3 || 1, k = 0.75 / Math.max(0.25, l);
+          m = km.clone(); m.color.setRGB(Math.min(1.25, 0.5 + 0.5 * c.r * k), Math.min(1.25, 0.5 + 0.5 * c.g * k), Math.min(1.25, 0.5 + 0.5 * c.b * k));
+        }
+        matCache.set(key, m);
+      } else matCache.set(key, make());
+    }
+    return matCache.get(key);
+  }
+  ME3D.resetMats = () => matCache.clear();
   const std = (o) => new T.MeshStandardMaterial(Object.assign({ roughness: 0.9, metalness: 0 }, o));
   const MAT = {
     whiteStone: () => mat('whiteStone', () => std({ map: TEX.ashlar('#e4e1d8', '#b8b3a6'), roughness: 0.85 })),
@@ -127,13 +145,20 @@
     thatch: (c) => mat('thatch' + c, () => std({ map: TEX.thatch(c) })),
     planks: (c) => mat('planks' + c, () => std({ map: TEX.planks(c) })),
     plaster: (c = '#e8dcc2') => mat('plaster' + c, () => std({ color: c, roughness: 0.95 })),
-    grass: (c = '#5d7d3a', fl) => mat('grass' + c + fl, () => std({ map: TEX.grass(c, fl) })),
+    // grass: the photographed meadow (web/models/ground.js) tinted toward the caller's colour, else drawn
+    grass: (c = '#5d7d3a', fl) => mat('grass' + c + fl, () => {
+      const gt = ME3D.groundTex;
+      if (!gt || !gt.meadow) return std({ map: TEX.grass(c, fl) });
+      const col = new T.Color(c), l = (col.r + col.g + col.b) / 3 || 1, k = 0.9 / Math.max(0.2, l);
+      const m = std({ map: gt.meadow, color: new T.Color(Math.min(1.3, 0.35 + 0.65 * col.r * k), Math.min(1.3, 0.35 + 0.65 * col.g * k), Math.min(1.3, 0.35 + 0.65 * col.b * k)), roughness: 0.95 });
+      m.name = 'meadow'; return m;
+    }),
     bark: (c) => mat('bark' + c, () => std({ map: TEX.bark(c) })),
     leaf: (c) => mat('leaf' + c, () => std({ color: c, flatShading: true, roughness: 0.8 })),
     gold: () => mat('gold', () => std({ color: '#d8a93a', metalness: 0.85, roughness: 0.3 })),
     brass: () => mat('brass', () => std({ color: '#c8a050', metalness: 0.9, roughness: 0.25 })),
     paint: (c) => mat('paint' + c, () => std({ color: c, roughness: 0.5 })),
-    water: () => mat('water', () => std({ color: '#2d5f73', roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.88 })),
+    water: () => mat('water', () => waterMat()),
     glow: (c, i = 2) => mat('glow' + c + i, () => new T.MeshStandardMaterial({ color: '#000', emissive: c, emissiveIntensity: i })),
     lava: () => mat('lava', () => new T.MeshStandardMaterial({ color: '#200', emissive: '#ff5a10', emissiveIntensity: 2.2, roughness: 1 })),
   };
@@ -255,6 +280,19 @@
   }
   ME3D.n3 = n3;
   function rockLump(r, R, c = '#7a746c', squash = 0.7) {
+    // with the kit loaded: a scanned cliff or rock face (Poly Haven), scaled to the lump's size
+    const scan = ME3D.kitNodes && ME3D.part('boulder2');
+    if (scan) {
+      // the scan's own colours are warm; take them toward the caller's grey so cliffs match the terrain
+      const tc = new T.Color(c); tc.lerp(new T.Color('#ffffff'), 0.35);
+      scan.traverse(o => { if (o.isMesh) { const key = 'lump' + c; ME3D._lumpMats = ME3D._lumpMats || {}; o.material = ME3D._lumpMats[key + o.material.name] || (ME3D._lumpMats[key + o.material.name] = Object.assign(o.material.clone(), {})); o.material.color.copy(tc); } });
+      const box = new T.Box3().setFromObject(scan), sz = box.getSize(new T.Vector3());
+      const k = (2 * r) / Math.max(sz.x, sz.z);
+      scan.scale.set(k, k * Math.max(0.6, squash) * Math.max(1, Math.max(sz.x, sz.z) / Math.max(sz.y, 0.01)) * 0.55, k);
+      scan.position.y = -box.min.y * scan.scale.y - r * 0.15;
+      scan.rotation.y = R() * Math.PI * 2;
+      const g = new T.Group(); g.add(scan); return g;
+    }
     const g = new T.IcosahedronGeometry(r, 4);
     const p = g.attributes.position, seed = Math.floor(R() * 1e6);
     for (let i = 0; i < p.count; i++) {
@@ -282,6 +320,32 @@
     return mesh(g, m);
   }
   // a flat sheet of water following a centre line at a fixed level
+  // water: a dark, glossy surface whose ripple normal map (tileable sums of sines, drawn once) reflects the
+  // sky through the scene's environment map; UVs are world metres / 24, so ripples keep their size
+  let rippleTex = null;
+  function ripples() {
+    if (rippleTex) return rippleTex;
+    const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+    const g = c.getContext('2d'), img = g.createImageData(N, N), H = new Float32Array(N * N), R = rng(77);
+    const waves = []; for (let k = 0; k < 14; k++) waves.push([Math.round(R.r(-6, 6)) || 1, Math.round(R.r(-6, 6)), R() * 6.28, 1 / (1 + k * 0.35)]);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { let h = 0; for (const [a, b, ph, amp] of waves) h += amp * Math.sin((a * x + b * y) / N * 6.2832 + ph); H[y * N + x] = h; }
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = H[y * N + (x + 1) % N] - H[y * N + (x + N - 1) % N], dy = H[((y + 1) % N) * N + x] - H[((y + N - 1) % N) * N + x];
+      const nx = -dx * 2.2, ny = -dy * 2.2, l = Math.hypot(nx, ny, 1), i = (y * N + x) * 4;
+      img.data[i] = (nx / l * 0.5 + 0.5) * 255; img.data[i + 1] = (ny / l * 0.5 + 0.5) * 255; img.data[i + 2] = (1 / l * 0.5 + 0.5) * 255; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    rippleTex = new T.CanvasTexture(c); rippleTex.wrapS = rippleTex.wrapT = T.RepeatWrapping; rippleTex.colorSpace = T.NoColorSpace;
+    return rippleTex;
+  }
+  function waterMat(color = '#1d4352') {
+    const nm = ripples().clone(); nm.needsUpdate = true;
+    const m = new T.MeshStandardMaterial({ color, roughness: 0.04, metalness: 0.15, normalMap: nm, normalScale: new T.Vector2(0.45, 0.45), envMapIntensity: 1.4, transparent: true, opacity: 0.9 });
+    m.userData.flow = (t, sp) => { nm.offset.set(t * sp * 0.3, -t * sp); };
+    return m;
+  }
+  ME3D.waterMat = waterMat;
+
   function flatWater(pts, width, level, m) {
     const pos = [], uv = [], idx = [];
     let acc = 0;
@@ -289,20 +353,34 @@
       const [x, z] = pts[i]; const [xa, za] = pts[Math.max(0, i - 1)], [xb, zb] = pts[Math.min(pts.length - 1, i + 1)];
       const dx = xb - xa, dz = zb - za, L = Math.hypot(dx, dz) || 1, nx = -dz / L, nz = dx / L;
       if (i) acc += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
-      for (const s2 of [-1, 1]) { pos.push(x + nx * width / 2 * s2, level, z + nz * width / 2 * s2); uv.push(s2 * 0.5 + 0.5, acc / 30); }
+      for (const s2 of [-1, 1]) { const px = x + nx * width / 2 * s2, pz = z + nz * width / 2 * s2; pos.push(px, level, pz); uv.push(px / 24, pz / 24); }
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const tex = canvasTex('flow2', 64, 256, (c, w, h, R) => { c.fillStyle = '#28566a'; c.fillRect(0, 0, w, h); for (let i = 0; i < 300; i++) { c.fillStyle = `rgba(220,240,255,${R.r(0.04, 0.22)})`; c.fillRect(R() * w, R() * h, R.r(1, 3), R.r(6, 30)); } }).clone();
-    tex.needsUpdate = true;
-    const o = mesh(g, m || new T.MeshStandardMaterial({ map: tex, roughness: 0.06, metalness: 0.3, transparent: true, opacity: 0.93 }), false, true);
-    o.userData.animate = (t) => { tex.offset.y = -t * 0.12; };
+    const wm = m || waterMat();
+    const o = mesh(g, wm, false, true);
+    o.userData.animate = (t) => { if (wm.userData.flow) wm.userData.flow(t, 0.02); };
     return o;
   }
 
   // Merge every static mesh under `root` into one mesh per material (huge draw-call savings: walls,
   // merlons, houses, trees). Meshes with their own animation (or inside an animated group) are kept.
+  // box-project UVs in world space so textures tile at their real size whatever the primitive
+  function boxUV(g, tile) {
+    const p = g.attributes.position.array, uv = g.attributes.uv.array;
+    for (let t = 0; t < p.length / 9; t++) {
+      const i = t * 9;
+      const ax = p[i + 3] - p[i], ay = p[i + 4] - p[i + 1], az = p[i + 5] - p[i + 2], bx = p[i + 6] - p[i], by = p[i + 7] - p[i + 1], bz = p[i + 8] - p[i + 2];
+      const nx = Math.abs(ay * bz - az * by), ny = Math.abs(az * bx - ax * bz), nz = Math.abs(ax * by - ay * bx);
+      for (let k = 0; k < 3; k++) {
+        const x = p[i + k * 3], y = p[i + k * 3 + 1], z = p[i + k * 3 + 2], j = (t * 3 + k) * 2;
+        if (ny >= nx && ny >= nz) { uv[j] = x / tile; uv[j + 1] = z / tile; }
+        else if (nx >= nz) { uv[j] = z / tile; uv[j + 1] = y / tile; }
+        else { uv[j] = x / tile; uv[j + 1] = y / tile; }
+      }
+    }
+  }
   function mergeStatic(root) {
     root.updateMatrixWorld(true);
     const inv = new T.Matrix4().copy(root.matrixWorld).invert();
@@ -317,6 +395,8 @@
       if (!g.attributes.uv) g.setAttribute('uv', new T.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
       if (!g.attributes.normal) g.computeVertexNormals();
       g.applyMatrix4(new T.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      const tile = !o.userData.glb && ME3D.TILES && ME3D.TILES[o.material.name];
+      if (tile) boxUV(g, tile);
       b.geos.push(g); b.cast = b.cast || o.castShadow; victims.push(o);
     });
     for (const o of victims) o.parent.remove(o);
@@ -371,16 +451,14 @@
       const [x, z] = pts[i]; const [xa, za] = pts[Math.max(0, i - 1)], [xb, zb] = pts[Math.min(pts.length - 1, i + 1)];
       const dx = xb - xa, dz = zb - za, L = Math.hypot(dx, dz) || 1, nx = -dz / L, nz = dx / L;
       if (i) acc += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
-      for (const s of [-1, 1]) { const px = x + nx * width / 2 * s, pz = z + nz * width / 2 * s; pos.push(px, ground(px, pz) + lift, pz); uv.push(s * 0.5 + 0.5, acc / 20); }
+      for (const s of [-1, 1]) { const px = x + nx * width / 2 * s, pz = z + nz * width / 2 * s; pos.push(px, ground(px, pz) + lift, pz); uv.push(px / 24, pz / 24); }
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const tex = canvasTex('flow', 64, 256, (c, w, h, R) => { c.fillStyle = '#2f6478'; c.fillRect(0, 0, w, h); for (let i = 0; i < 300; i++) { c.fillStyle = `rgba(220,240,255,${R.r(0.05, 0.3)})`; c.fillRect(R() * w, R() * h, R.r(1, 3), R.r(6, 30)); } }).clone();
-    tex.needsUpdate = true;
-    const m = new T.MeshStandardMaterial({ map: tex, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.92 });
+    const m = waterMat('#24505e');
     const o = mesh(g, m, false, true);
-    o.userData.animate = (t) => { tex.offset.y = -t * 0.25; };
+    o.userData.animate = (t) => { if (o.material.userData.flow) o.material.userData.flow(t, 0.05); };
     return o;
   }
   function waterfall(w, h, x, y, z, rotY = 0) {
@@ -395,5 +473,33 @@
     return grp;
   }
 
-  Object.assign(ME3D, { taperTube, flatWater, mergeStatic, house, gableRoof, hipRoof, tower, wall, archBridge, tree, rockLump, glowSprite, smoke, waterRibbon, waterfall, canvasTex });
+  // a cascade draped over the real slope from (x, z0) down to (x, z1): a ribbon a little above the ground,
+  // white where it is steep, with flowing foam, a plunge pool glow and mist at the foot
+  function cascade(ground, x, z0, z1, w) {
+    const tex = canvasTex('cascade', 128, 256, (c, ww, hh, R) => { c.fillStyle = 'rgba(190,220,240,0.6)'; c.fillRect(0, 0, ww, hh); for (let i = 0; i < 700; i++) { c.fillStyle = `rgba(255,255,255,${R.r(0.25, 0.9)})`; const x0 = R() * ww; c.fillRect(x0, R() * hh, R.r(1, 3.5), R.r(8, 34)); } }).clone();
+    tex.needsUpdate = true; tex.wrapS = tex.wrapT = T.RepeatWrapping;
+    const n = 48, pos = [], uv = [], idx = [];
+    let len = 0, prev = null;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, z = z0 + (z1 - z0) * t, xx = x + Math.sin(t * 7.3) * w * 0.25, y = ground(xx, z) + 1.2 + ((i % 6) < 3 ? 0.9 : 0);
+      if (prev) len += Math.hypot(z - prev[0], y - prev[1]);
+      prev = [z, y];
+      const ww = w * (0.45 + 0.4 * t) * (0.8 + 0.4 * Math.abs(Math.sin(i * 1.7)));
+      pos.push(xx - ww / 2, y, z, xx + ww / 2, y, z); uv.push(0, len / 14, 1, len / 14);
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
+    const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
+    const m = new T.MeshStandardMaterial({ map: tex, color: '#cfe0ea', transparent: true, opacity: 0.8, emissive: '#8ea4b4', emissiveIntensity: 0.15, roughness: 0.2, side: T.DoubleSide, depthWrite: false });
+    const o = mesh(geo, m, false, false);
+    const grp = new T.Group(); grp.add(o);
+    const fy = ground(x, z1);
+    for (let k = 0; k < 2; k++) { const mist = glowSprite('rgba(225,235,245,0.16)', w * (1.4 + k * 0.8)); mist.position.set(x + (k - 0.5) * w * 0.4, fy + 1.5 + k * 1.5, z1); grp.add(mist); }
+    // wet rocks along the banks
+    const RR = rng(Math.floor(x * 13 + z0));
+    for (let k = 0; k < 7; k++) { const t = 0.1 + k * 0.12, z = z0 + (z1 - z0) * t, side = k % 2 ? 1 : -1, bx = x + side * w * (0.55 + RR() * 0.4); const l = rockLump(w * RR.r(0.25, 0.5), RR, '#6f6b66', 0.8); l.position.set(bx, ground(bx, z) - 1, z); grp.add(l); }
+    grp.userData.animate = (t) => { tex.offset.y = -t * 0.9; };
+    return grp;
+  }
+
+  Object.assign(ME3D, { taperTube, flatWater, mergeStatic, house, gableRoof, hipRoof, tower, wall, archBridge, tree, rockLump, glowSprite, smoke, waterRibbon, waterfall, cascade, canvasTex });
 })();
