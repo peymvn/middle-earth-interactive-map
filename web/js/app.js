@@ -801,8 +801,22 @@
     showCard(`<div class="body"><h1>Middle-earth Maps</h1><div class="cat">A Google-Maps-style atlas of Arda's Third Age</div></div>
       <div class="desc">Satellite imagery is rendered live in your browser from the ME-DEM elevation model and ME-GIS layers, so you can zoom from the whole continent down to single roofs in Minas Tirith or hobbit-holes in Hobbiton.<br><br>
       <b>Tips</b><br>• Search places and events in the box above.<br>• ${isTouch ? 'Long-press' : 'Right-click'} the map: coordinates, <i>What's here?</i>, measure distance.<br>• Bottom-left square: switch Map / Satellite; ${isTouch ? 'the ⚙ button next to it' : 'hover it'} for Terrain, Labels and Events.<br>• Chips at the top: events, journeys, cities, landmarks. Your choices stay on the chip, with ✕ to clear.<br>• ${isTouch ? 'Tap' : 'Hover'} a journey to see where and when; ${isTouch ? 'tap' : 'click'} for the story.<br>• The URL always holds the current view, so you can share it.</div>
+      <div class="row"><a class="gh-card-btn" href="https://github.com/peymvn/middle-earth-interactive-map" target="_blank" rel="noopener">★ Star this project on GitHub</a><span class="muted">It's free, open source and made for fun. A star helps other Tolkien fans find it.</span></div>
       <div class="desc" style="font-size:12px;color:#70757a">${PLACES.filter(p => p.curated).length} described places · ${EVENTS.length} events · ${window.ME_JOURNEYS.length} journeys.<br>
       Terrain: Arda 32k DEM (CC BY 4.0) · Vectors: ME-GIS · Map library: Leaflet. Middle-earth is the creation of J.R.R. Tolkien; this is a non-commercial fan project. See README.md to contribute.</div>`);
   };
+  // GitHub star button: live star count, cached for a day (the API allows 60 unauthenticated calls/hour)
+  (async function starCount() {
+    const el = document.querySelector('#gh-star .gh-count'); if (!el) return;
+    const show = (n) => { if (n > 0) { el.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n; el.hidden = false; } };
+    try {
+      const c = JSON.parse(localStorage.getItem('me-stars') || 'null');
+      if (c && Date.now() - c.t < 864e5) return show(c.n);
+      const r = await fetch('https://api.github.com/repos/peymvn/middle-earth-interactive-map');
+      if (!r.ok) return;
+      const n = (await r.json()).stargazers_count;
+      localStorage.setItem('me-stars', JSON.stringify({ n, t: Date.now() })); show(n);
+    } catch (e) { /* offline or file:// without storage: the button still works without a count */ }
+  })();
   ME.map = map; ME.places = PLACES; ME.journeyLines = journeyLines; ME.events = EVENTS; ME.openPlace = openPlace; ME.setMode = setMode;
 })();

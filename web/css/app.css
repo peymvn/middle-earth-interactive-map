@@ -248,3 +248,14 @@ html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--tex
   #layer-more { height: 64px; }
   #suggestions { max-height: 55vh; }
 }
+
+/* ---------- GitHub star button: quiet pill at the top right (end of the chip row on phones) */
+.gh-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 9px; border-radius: 16px; background: rgba(255,255,255,.92); box-shadow: var(--shadow); color: #24292f; text-decoration: none; font: 500 13px var(--font); white-space: nowrap; flex: none; transition: background .15s, transform .15s; }
+.gh-chip svg { width: 16px; height: 16px; fill: #24292f; }
+.gh-chip .gh-star-ico { color: #e3b341; font-size: 14px; line-height: 1; transition: transform .3s; }
+.gh-chip .gh-count { padding-left: 7px; margin-left: 1px; border-left: 1px solid #d0d7de; color: #57606a; font-weight: 400; }
+.gh-chip:hover { background: #fff; }
+.gh-chip:hover .gh-star-ico { transform: rotate(72deg) scale(1.2); }
+@media (min-width: 701px) { .gh-chip { position: fixed; top: 16px; right: 12px; z-index: 900; } }
+#card .gh-card-btn { flex: none; display: inline-block; background: #24292f; color: #fff; text-decoration: none; border-radius: 16px; padding: 6px 12px; font: 500 13px var(--font); margin-right: 4px; }
+#card .row:has(.gh-card-btn) { flex-direction: column; gap: 6px; }
