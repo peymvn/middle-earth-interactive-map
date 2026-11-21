@@ -17,7 +17,7 @@ const { chromium } = require('playwright');
   await page.click('[data-chip=events]'); await page.waitForTimeout(400);
   await page.click('[data-ev=helms-deep]'); await page.waitForTimeout(2000); await idle(); await page.waitForTimeout(3000);
   await page.screenshot({ path: '/tmp/me/ui_event.png' });
-  await page.click('[data-chip=journeys]'); await page.waitForTimeout(300);
+  await page.click('.pn-close').catch(() => {}); await page.click('[data-chip=journeys]'); await page.click('label.jsel'); await page.click('[data-act=done]'); await page.waitForTimeout(300);
   await page.evaluate(() => ME.map.setView([1150000, 950000], 4)); await idle(); await page.waitForTimeout(800);
   await page.screenshot({ path: '/tmp/me/ui_journeys.png' });
   console.log(errs.join('\n'));

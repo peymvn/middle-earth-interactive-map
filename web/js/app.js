@@ -20,6 +20,7 @@
   const km = (v) => (v / 1000).toFixed(1);
   const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
+  const isTouch = window.matchMedia('(hover: none)').matches;
   // ------------------------------------------------------------------ places
   const TYPE = {
     city: { cls: 'city', dot: true, minZ: 4, glyph: '●', bg: '#5f6368', label: 'City' },
@@ -186,10 +187,10 @@
     zoomAnimationThreshold: 6, wheelPxPerZoomLevel: 90,
   });
   map.attributionControl.setPrefix(false);
-  map.attributionControl.addAttribution('Terrain: Arda/ME-DEM (CC BY 4.0) · Vectors: ME-GIS · Rendered procedurally · <a href="README.md" target="_blank">About</a>');
+  map.attributionControl.addAttribution('<a href="https://github.com/peymvn/middle-earth-interactive-map#readme" target="_blank">About</a> · Terrain: Arda/ME-DEM (CC BY 4.0) · Vectors: ME-GIS · Rendered procedurally');
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   const bounds = L.latLngBounds(ll(-W * 0.6, 0), ll(W, W)); // includes the islands west of the DEM (data/islands.js)
-  const state = { mode: 'satellite', terrain: true, labels: true, events: true, journeys: false };
+  const state = { mode: 'satellite', terrain: true, labels: true, events: true, journeySel: new Set(), eventBook: 'all' };
   const layers = {
     satellite: new ME.TerrainLayer({ mode: 'satellite', opts: { models: !!window.ME3D }, bounds, maxNativeZoom: 17 }),
     map: new ME.TerrainLayer({ mode: 'map', opts: { terrain: true }, bounds, maxNativeZoom: 17 }),
@@ -237,10 +238,11 @@
     g.marker = L.marker(ll(g.x, g.y), { icon: pinIcon(g), riseOnHover: true, keyboard: false, title: g.events.map(e => e.title).join(' · ') });
     g.marker.on('click', () => openEvents(g));
   }
+  function eventMatches(e) { const b = state.eventBook; return b === 'all' || e.book === b || (b === 'FR' && e.book === 'FR/TT'); }
   function updateEventPins() {
     const z = map.getZoom();
     for (const g of evGroups.values()) {
-      const show = state.events && (g.major ? z >= 5 : z >= 7);
+      const show = state.events && g.events.some(eventMatches) && (g.major || state.eventBook !== 'all' ? z >= 4 : z >= 7);
       if (show && !eventLayer.hasLayer(g.marker)) eventLayer.addLayer(g.marker);
       if (!show && eventLayer.hasLayer(g.marker)) eventLayer.removeLayer(g.marker);
     }
@@ -338,7 +340,7 @@
     const path = back ? rec.backPath : rec.path, pt = path[Math.max(0, i)];
     if (stageMarker) map.removeLayer(stageMarker);
     stageMarker = L.circleMarker(ll(pt[0], pt[1]), { radius: 8, color: '#fff', weight: 3, fillColor: rec.j.color, fillOpacity: 1, interactive: false }).addTo(map);
-    if (flyTo) map.flyTo(ll(pt[0], pt[1]), Math.max(map.getZoom(), 7), { duration: 0.8 });
+    if (flyTo) setTimeout(() => flyVisible(ll(pt[0], pt[1]), Math.max(map.getZoom(), 7), { duration: 0.8 }), 0);
     const date = info.day != null ? (info.at ? fmtRange(info.at.d0, info.at.d1) : '≈ ' + fmtDay(Math.round(info.day), true)) : '';
     const ev = (st) => st && st.event ? EVENTS.find(e => e.id === st.event) : null;
     const stageRow = (st, k, here) => `<div class="tl-stage${here ? ' here' : ''}" data-stage="${k}"><span class="tl-pin" style="border-color:${j.color}${here ? ';background:' + j.color : ''}"></span><div><div class="tl-when">${fmtRange(st.d0, st.d1)}${st.approx ? ' (approx.)' : ''}</div><div class="tl-name">${esc(stageName(st))}</div>${here ? `<div class="tl-text">${esc(st.text)}</div>` : ''}</div></div>`;
@@ -361,6 +363,7 @@
       <div class="tl-list">${tl.stages.map((st, k) => stageRow(st, k, k === curIdx) + (info.between && k === info.i ? `<div class="tl-you"><span style="background:${j.color}"></span>≈ ${fmtDay(Math.round(info.day), true)}: you are here</div>` : '')).join('')}</div>
       <div class="src">Dates from the Tale of Years (Appendix B) and the text; between stages they are estimated from the distance travelled.</div>`);
     card.querySelectorAll('[data-stage]').forEach(el => el.onclick = () => openJourneyStage(rec, tl, tl.stages[+el.dataset.stage].s, back, true));
+    if (!flyTo && isPhone()) { const P = map.latLngToContainerPoint(ll(pt[0], pt[1])); if (P.y > window.innerHeight - sheetHeight() - 30) flyVisible(ll(pt[0], pt[1]), map.getZoom(), { duration: 0.6 }); }
     card.scrollTop = 0;
     const list = card.querySelector('.tl-list'), here = card.querySelector('.tl-you') || card.querySelector('.tl-stage.here');
     if (list && here) list.scrollTop = Math.max(0, here.offsetTop - 60);
@@ -389,7 +392,7 @@
       const line = L.polyline(pts, { color: j.color, weight: 4.5, opacity: 0.95, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.6, interactive: false });
       const hit = L.polyline(pts, { color: '#000', weight: 18, opacity: 0, smoothFactor: 0.6, className: 'jt-hit' }); // generous hover target
       parts.push(line, hit);
-      const rec = { j, path: r.path, on: true };
+      const rec = { j, path: r.path, on: false };
       // the way back, where it differs from the way out: dashed
       let backMiles = 0;
       if (j.back) {
@@ -413,7 +416,6 @@
       // a round trip counts the outward road twice except where the way back differs
       rec.grp = grp;
       journeyLines.push(Object.assign(rec, { miles: j.back ? miles + backMiles + (miles - lengthOf(r.path.slice(0, nearestIndex(r.path, toStops(j.back, j).slice(-1)[0])))) : miles }));
-      journeyLayer.addLayer(grp);
     });
   }
   function nearestIndex(path, s) { let bi = 0, bd = Infinity; path.forEach((q, i) => { const d = Math.hypot(q[0] - s.x, q[1] - s.y); if (d < bd) { bd = d; bi = i; } }); return bi + 1; }
@@ -434,15 +436,28 @@
     updateThumb(); saveHash();
   }
   document.getElementById('layer-thumb').onclick = () => setMode(state.mode === 'map' ? 'satellite' : 'map');
+  document.getElementById('layer-opts').onclick = (e) => { e.stopPropagation(); document.getElementById('layerswitch').classList.toggle('open'); };
+  map.on('click movestart', () => document.getElementById('layerswitch').classList.remove('open'));
   document.getElementById('opt-terrain').onchange = (e) => { layers.map.options.opts = { terrain: e.target.checked }; layers.map.redraw(); };
   document.getElementById('opt-labels').onchange = (e) => { state.labels = e.target.checked; if (state.labels) labelLayer.addTo(map); else map.removeLayer(labelLayer); };
   document.getElementById('opt-events').onchange = (e) => { state.events = e.target.checked; updateEventPins(); };
-  document.getElementById('opt-journeys').onchange = (e) => setJourneys(e.target.checked);
-  function setJourneys(on) {
-    state.journeys = on;
-    document.getElementById('opt-journeys').checked = on;
-    if (on) { buildJourneys(); journeyLayer.addTo(map); showLegend('journeys'); } else { map.removeLayer(journeyLayer); if (stageMarker) { map.removeLayer(stageMarker); stageMarker = null; } if (legendMode === 'journeys') hideLegend(); }
-    chip('journeys', on);
+  // which journeys are drawn (chosen in the Journeys panel)
+  function setJourneySelection(ids, fit) {
+    buildJourneys();
+    state.journeySel = new Set(ids);
+    for (const r of journeyLines) {
+      const on = state.journeySel.has(r.j.id);
+      if (on && !r.on) journeyLayer.addLayer(r.grp);
+      if (!on && r.on) journeyLayer.removeLayer(r.grp);
+      r.on = on;
+    }
+    if (!state.journeySel.size && stageMarker) { map.removeLayer(stageMarker); stageMarker = null; }
+    if (fit && state.journeySel.size) {
+      const b = L.latLngBounds([]);
+      for (const r of journeyLines) if (r.on) for (const q of r.path) b.extend(ll(q[0], q[1]));
+      map.flyToBounds(b, Object.assign({ duration: 1 }, mapPadding()));
+    }
+    updateChips(); saveHash();
   }
   let thumbTimer;
   function updateThumb() {
@@ -467,7 +482,7 @@
     selMarker = L.marker(ll(x, y), { zIndexOffset: 1000, interactive: false, icon: L.divIcon({ className: '', iconSize: [27, 43], iconAnchor: [13.5, 43],
       html: '<svg width="27" height="43" viewBox="0 0 27 43"><path d="M13.5 42c-1-5-4-10-8-15A13 13 0 1 1 21.5 27c-4 5-7 10-8 15z" fill="#ea4335" stroke="#a50e0e"/><circle cx="13.5" cy="13.5" r="4.5" fill="#a50e0e"/></svg>' }) }).addTo(map);
   }
-  function closeCard() { if (stageMarker) { map.removeLayer(stageMarker); stageMarker = null; } card.hidden = true; card.innerHTML = ''; clearBtn.hidden = true; searchBtn.hidden = false; if (selMarker) { map.removeLayer(selMarker); selMarker = null; } }
+  function closeCard() { document.body.classList.remove('card-open'); delete card.dataset.snap; card.style.height = ''; if (stageMarker) { map.removeLayer(stageMarker); stageMarker = null; } card.hidden = true; card.innerHTML = ''; clearBtn.hidden = true; searchBtn.hidden = false; if (selMarker) { map.removeLayer(selMarker); selMarker = null; } }
   clearBtn.onclick = () => { searchEl.value = ''; closeCard(); };
   const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function photoZoom(p) {
@@ -514,7 +529,37 @@
     card.querySelectorAll('[data-ev]').forEach(el => el.onclick = () => { const e = EVENTS.find(v => v.id === el.dataset.ev); if (e) openEvent(e); });
     card.querySelectorAll('[data-place]').forEach(el => el.onclick = () => { const p = PLACES.find(v => v.id === el.dataset.place); if (p) openPlace(p); });
   }
-  function showCard(html) { card.innerHTML = html; card.hidden = false; card.scrollTop = 0; clearBtn.hidden = false; searchBtn.hidden = true; wireCard(); }
+  function showCard(html) {
+    if (isPhone() && panelMode) hidePanel();
+    card.innerHTML = `<div class="sheet-grab" title="Drag"></div>` + html; card.hidden = false; card.scrollTop = 0; clearBtn.hidden = false; searchBtn.hidden = true;
+    if (isPhone() && !card.dataset.snap) setSnap('half');
+    document.body.classList.add('card-open');
+    wireCard();
+  }
+  // phone bottom sheet: three snap heights; drag the grab bar or tap it to cycle
+  const SNAPS = { peek: 0.3, half: 0.55, full: 0.9 };
+  function setSnap(s) { card.dataset.snap = s; card.style.height = isPhone() ? Math.round(window.innerHeight * SNAPS[s]) + 'px' : ''; }
+  function sheetHeight() { return isPhone() && !card.hidden ? card.getBoundingClientRect().height : 0; }
+  function mapPadding() { const p = isPhone() ? { paddingTopLeft: [20, 120], paddingBottomRight: [20, Math.max(40, sheetHeight() + 20)] } : { paddingTopLeft: [card.hidden ? 40 : 420, 80], paddingBottomRight: [panel.hidden ? 40 : 320, 40] }; return p; }
+  // fly so the target sits in the part of the map that the sheet / card doesn't cover
+  function flyVisible(latlng, z, opts) {
+    const off = isPhone() ? [0, sheetHeight() / 2] : [card.hidden ? 0 : -200, 0];
+    const c = map.unproject(map.project(latlng, z).add(off), z);
+    map.flyTo(c, z, opts || { duration: 1.1 });
+  }
+  (function sheetDrag() {
+    let y0 = null, h0 = 0, moved = false;
+    card.addEventListener('pointerdown', (e) => { if (!isPhone() || !e.target.closest('.sheet-grab')) return; y0 = e.clientY; h0 = card.getBoundingClientRect().height; moved = false; card.setPointerCapture(e.pointerId); card.classList.add('dragging'); });
+    card.addEventListener('pointermove', (e) => { if (y0 == null) return; const h = Math.max(80, Math.min(window.innerHeight * 0.92, h0 - (e.clientY - y0))); if (Math.abs(e.clientY - y0) > 4) moved = true; card.style.height = h + 'px'; });
+    card.addEventListener('pointerup', () => {
+      if (y0 == null) return; y0 = null; card.classList.remove('dragging');
+      const f = card.getBoundingClientRect().height / window.innerHeight;
+      if (!moved) { setSnap(card.dataset.snap === 'full' ? 'peek' : card.dataset.snap === 'half' ? 'full' : 'half'); return; }
+      if (f < 0.18) { closeCard(); searchEl.value = ''; return; }
+      setSnap(f < 0.42 ? 'peek' : f < 0.72 ? 'half' : 'full');
+    });
+    window.addEventListener('resize', () => { if (!card.hidden && card.dataset.snap) setSnap(card.dataset.snap); if (!isPhone()) card.style.height = ''; });
+  })();
   function openPlace(p, fly = true) {
     const t = TYPE[p.type] || TYPE.landmark;
     searchEl.value = p.name;
@@ -547,7 +592,7 @@
     selectPin(p.x, p.y);
     if (fly) {
       const z = p.type === 'region' ? 5 : p.type === 'range' || p.type === 'sea' ? 6 : p.type === 'area' || p.type === 'forest' ? 8 : Math.max(Math.min(photoZoom(p) - 2, 12), 9);
-      map.flyTo(ll(p.x - 0.0 * W, p.y), z, { duration: 1.2 });
+      flyVisible(ll(p.x, p.y), z, { duration: 1.2 });
     }
   }
   function lm3d(p) { return window.ME3D ? ME3D.forPlace(p.name, p.x, p.y) : null; }
@@ -574,7 +619,7 @@
     const e3 = card.querySelector('[data-a="ev3d"]');
     if (e3) e3.onclick = () => { const l = (e.place && lm3d(e.place)) || ME3D.landmarks().find(x => x.id === EVENT_3D[e.id] || (x.extra || []).includes(EVENT_3D[e.id])); ME3D.open(EVENT_3D[e.id] || l.id, l); };
     selectPin(e.x, e.y);
-    map.flyTo(ll(e.x, e.y), Math.max(map.getZoom(), 9), { duration: 1.2 });
+    flyVisible(ll(e.x, e.y), Math.max(map.getZoom(), 9), { duration: 1.2 });
   }
   function openEvents(g) { if (g.events.length === 1) return openEvent(g.events[0]); openEvent(g.events[g.events.length - 1]); }
 
@@ -614,45 +659,78 @@
   searchBtn.onclick = () => pick(0);
   map.on('click', () => hideSuggest());
 
-  // ------------------------------------------------------------------ legend / timeline / chips
-  const legend = document.getElementById('legend');
-  let legendMode = null;
-  function hideLegend() { legend.hidden = true; legendMode = null; chip('events', false); chip('cities', false); chip('landmarks', false); }
-  function chip(name, on) { const c = document.querySelector(`[data-chip=${name}]`); if (c) c.classList.toggle('on', on); }
-  function showLegend(mode) {
-    legendMode = mode;
-    legend.hidden = false;
+  // ------------------------------------------------------------------ panels & chips
+  // A chip opens a panel (desktop: floating at the top right; phone: bottom sheet). Panels never stay
+  // open by themselves: choices are kept on the chip (e.g. "Frodo & Sam ×"), so the map stays clear.
+  const panel = document.getElementById('legend');
+  let panelMode = null;
+  const isPhone = () => window.matchMedia('(max-width: 700px)').matches;
+  const BOOKS = [['all', 'All'], ['Sil', 'Elder Days'], ['App', 'Appendices'], ['H', 'The Hobbit'], ['FR', 'Fellowship'], ['TT', 'Two Towers'], ['RK', 'Return of the King']];
+  function hidePanel() { panel.hidden = true; panelMode = null; document.body.classList.remove('panel-open'); updateChips(); }
+  function panelShell(title, sub, body, foot) {
+    panel.innerHTML = `<div class="pn-grab"></div><div class="pn-head"><div><div class="pn-title">${title}</div>${sub ? `<div class="pn-sub">${sub}</div>` : ''}</div><button class="pn-close" aria-label="Close">✕</button></div><div class="pn-body">${body}</div>${foot ? `<div class="pn-foot">${foot}</div>` : ''}`;
+    panel.querySelector('.pn-close').onclick = hidePanel;
+  }
+  function showPanel(mode) {
+    panelMode = mode; panel.hidden = false; panel.dataset.mode = mode;
+    document.body.classList.add('panel-open');
+    if (isPhone()) closeCard();
     if (mode === 'journeys') {
-      legend.innerHTML = `<h3>Journeys</h3>${journeyLines.map((r, i) => `<div class="jr${r.on ? '' : ' off'}" data-j="${i}"><span class="sw" style="background:${r.j.color}"></span><div><div>${esc(r.j.name)}</div><div style="color:#70757a;font-size:11px">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</div></div></div>`).join('')}<div class="note">Hover a route to see where and when; click it for the story. Solid: the way there; dashed: a different way back (Bilbo). Routes follow roads and rivers where the story does; overland stretches are approximate. Click to show or hide.</div>`;
-      legend.querySelectorAll('.jr').forEach(el => el.onclick = () => {
-        const r = journeyLines[+el.dataset.j]; r.on = !r.on;
-        if (r.on) journeyLayer.addLayer(r.grp); else journeyLayer.removeLayer(r.grp);
-        el.classList.toggle('off', !r.on);
-      });
-    } else if (mode === 'events') {
-      const books = ['all', 'Sil', 'App', 'H', 'FR', 'TT', 'RK'];
-      const names = { all: 'All', Sil: 'Elder days', App: 'Appendices', H: 'Hobbit', FR: 'Fellowship', TT: 'Two Towers', RK: 'Return' };
-      let filter = 'all';
+      buildJourneys();
+      const sel = new Set(state.journeySel), before = [...sel].join();
       const draw = () => {
-        const list = EVENTS.filter(e => filter === 'all' || e.book === filter || (filter === 'FR' && e.book === 'FR/TT'));
-        legend.innerHTML = `<h3>Timeline of events</h3><div class="tl-filter">${books.map(b => `<button data-b="${b}" class="${b === filter ? 'on' : ''}">${names[b]}</button>`).join('')}</div>
-          <div class="timeline">${list.map(e => `<div class="tl-item" data-ev="${e.id}"><span>${KIND[e.kind] || '📍'}</span><div><div>${esc(e.title)}</div><div class="date">${esc(e.date)}</div></div></div>`).join('')}</div>`;
-        legend.querySelectorAll('[data-b]').forEach(el => el.onclick = () => { filter = el.dataset.b; draw(); });
-        legend.querySelectorAll('[data-ev]').forEach(el => el.onclick = () => openEvent(EVENTS.find(v => v.id === el.dataset.ev)));
+        panelShell('Journeys', 'Choose the journeys to draw on the map',
+          journeyLines.map(r => `<label class="jsel${sel.has(r.j.id) ? ' on' : ''}" style="--c:${r.j.color}"><input type="checkbox" data-j="${r.j.id}"${sel.has(r.j.id) ? ' checked' : ''}><span class="jbox"></span><span class="jtxt"><span class="jname">${esc(r.j.name)}</span><span class="jsub">${esc(r.j.book)} · ~${Math.round(r.miles / 10) * 10} mi</span></span><span class="jswatch"></span></label>`).join('') +
+          `<div class="pn-note">${isTouch ? 'Tap' : 'Hover'} a route to see where the travellers were and when; ${isTouch ? 'tap' : 'click'} it for the story.</div>`,
+          `<button class="pn-btn" data-act="clear"${sel.size ? '' : ' disabled'}>Clear</button><button class="pn-btn" data-act="all">Select all</button><button class="pn-btn primary" data-act="done">Done</button>`);
+        panel.querySelectorAll('input[data-j]').forEach(cb => cb.onchange = () => { if (cb.checked) sel.add(cb.dataset.j); else sel.delete(cb.dataset.j); setJourneySelection(sel, false); draw(); });
+        panel.querySelector('[data-act=clear]').onclick = () => { sel.clear(); setJourneySelection(sel, false); draw(); };
+        panel.querySelector('[data-act=all]').onclick = () => { journeyLines.forEach(r => sel.add(r.j.id)); setJourneySelection(sel, false); draw(); };
+        panel.querySelector('[data-act=done]').onclick = () => { hidePanel(); if (sel.size && [...sel].join() !== before) setJourneySelection(sel, true); };
+      };
+      draw();
+    } else if (mode === 'events') {
+      const draw = () => {
+        const list = EVENTS.filter(eventMatches);
+        panelShell('Events', `${list.length} events${state.eventBook === 'all' ? '' : ' · pins on the map filtered too'}`,
+          `<div class="tl-filter">${BOOKS.map(([b, n]) => `<button data-b="${b}" class="${b === state.eventBook ? 'on' : ''}">${n}</button>`).join('')}</div>
+           <div class="timeline">${list.map(e => `<div class="tl-item" data-ev="${e.id}"><span>${KIND[e.kind] || '📍'}</span><div><div>${esc(e.title)}</div><div class="date">${esc(e.date)}</div></div></div>`).join('')}</div>`);
+        panel.querySelectorAll('[data-b]').forEach(el => el.onclick = () => { state.eventBook = el.dataset.b; updateEventPins(); updateChips(); draw(); });
+        panel.querySelectorAll('[data-ev]').forEach(el => el.onclick = () => { if (isPhone()) hidePanel(); openEvent(EVENTS.find(v => v.id === el.dataset.ev)); });
       };
       draw();
     } else {
       const list = mode === 'cities' ? PLACES.filter(p => p.curated && ['city', 'haven', 'town', 'village'].includes(p.type)) : PLACES.filter(p => p.curated && ['fortress', 'peak', 'landmark', 'ruin', 'mountain', 'cave', 'bridge', 'ford'].includes(p.type));
-      legend.innerHTML = `<h3>${mode === 'cities' ? 'Cities & towns' : 'Landmarks'}</h3><div class="timeline">${list.sort((a, b) => b.rank - a.rank).map(p => `<div class="tl-item" data-place="${p.id}"><span>${(TYPE[p.type] || {}).icon || '●'}</span><div><div>${esc(p.name)}</div><div class="date">${esc(p.region || (TYPE[p.type] || {}).label)}</div></div></div>`).join('')}</div>`;
-      legend.querySelectorAll('[data-place]').forEach(el => el.onclick = () => openPlace(PLACES.find(v => v.id === el.dataset.place)));
+      panelShell(mode === 'cities' ? 'Cities & towns' : 'Landmarks', `${list.length} places`,
+        `<div class="timeline">${list.sort((a, b) => b.rank - a.rank).map(p => `<div class="tl-item" data-place="${p.id}"><span>${(TYPE[p.type] || {}).icon || '●'}</span><div><div>${esc(p.name)}</div><div class="date">${esc(p.region || (TYPE[p.type] || {}).label)}</div></div></div>`).join('')}</div>`);
+      panel.querySelectorAll('[data-place]').forEach(el => el.onclick = () => { if (isPhone()) hidePanel(); openPlace(PLACES.find(v => v.id === el.dataset.place)); });
     }
+    updateChips();
   }
-  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
-    const name = c.dataset.chip;
-    if (name === 'journeys') { setJourneys(!state.journeys); return; }
-    if (legendMode === name) { hideLegend(); return; }
-    hideLegend(); showLegend(name); chip(name, true);
-  });
+  // chips show what is selected, with an × to clear it, so a closed panel still tells the story
+  function updateChips() {
+    const set = (name, label, active, clear) => {
+      const c = document.querySelector(`[data-chip=${name}]`); if (!c) return;
+      c.classList.toggle('on', panelMode === name);
+      c.classList.toggle('active', !!active);
+      c.innerHTML = `${label}${active ? `<span class="chip-x" title="Clear" aria-label="Clear">✕</span>` : ''}`;
+      const x = c.querySelector('.chip-x'); if (x) x.onclick = (e) => { e.stopPropagation(); clear(); };
+    };
+    const sel = journeyLines.filter(r => state.journeySel.has(r.j.id));
+    const jl = !sel.length ? '🧭 Journeys' : sel.length === 1 ? `<span class="chip-dot" style="background:${sel[0].j.color}"></span>${esc(sel[0].j.name.split(':')[0])}` : `<span class="chip-dots">${sel.slice(0, 3).map(r => `<span class="chip-dot" style="background:${r.j.color}"></span>`).join('')}</span>${sel.length} journeys`;
+    set('journeys', jl, sel.length, () => { setJourneySelection([], false); if (panelMode === 'journeys') showPanel('journeys'); });
+    const bk = BOOKS.find(b => b[0] === state.eventBook);
+    set('events', state.eventBook === 'all' ? '⚔️ Events' : `⚔️ ${bk[1]}`, state.eventBook !== 'all', () => { state.eventBook = 'all'; updateEventPins(); updateChips(); if (panelMode === 'events') showPanel('events'); });
+    set('cities', '🏰 Cities', false); set('landmarks', '⛰️ Landmarks', false);
+  }
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { const name = c.dataset.chip; if (panelMode === name) hidePanel(); else showPanel(name); });
+  // phone: drag the panel's grab bar down to close it
+  (function dragToClose() {
+    let y0 = null;
+    panel.addEventListener('pointerdown', (e) => { if (isPhone() && e.target.closest('.pn-grab, .pn-head') && !e.target.closest('button')) { y0 = e.clientY; panel.setPointerCapture(e.pointerId); } });
+    panel.addEventListener('pointermove', (e) => { if (y0 != null) panel.style.transform = `translateY(${Math.max(0, e.clientY - y0)}px)`; });
+    panel.addEventListener('pointerup', (e) => { if (y0 == null) return; const dy = e.clientY - y0; y0 = null; panel.style.transform = ''; if (dy > 80) hidePanel(); });
+  })();
 
   // ------------------------------------------------------------------ context menu, measure, toast
   const ctx = document.getElementById('ctxmenu');
@@ -701,7 +779,7 @@
   // ------------------------------------------------------------------ URL state
   function saveHash() {
     const c = map.getCenter();
-    history.replaceState(null, '', `#${map.getZoom()}/${km(c.lng)}/${km(c.lat)}/${state.mode}`);
+    history.replaceState(null, '', `#${map.getZoom()}/${km(c.lng)}/${km(c.lat)}/${state.mode}${state.journeySel.size ? '/j=' + [...state.journeySel].join(',') : ''}`);
   }
   map.on('moveend', saveHash);
   const h = location.hash.slice(1).split('/');
@@ -713,13 +791,16 @@
   eventLayer.addTo(map);
   updateEventPins();
   updateBadges();
+  journeyLayer.addTo(map);
+  { const jm = location.hash.match(/j=([\w,:-]+)/); if (jm) setJourneySelection(jm[1].split(','), false); }
+  updateChips();
   zoomClass();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideSuggest(); if (measure) mbox.querySelector('#m-clear').click(); } });
   // menu -> about card
   document.getElementById('menu-btn').onclick = () => {
     showCard(`<div class="body"><h1>Middle-earth Maps</h1><div class="cat">A Google-Maps-style atlas of Arda's Third Age</div></div>
       <div class="desc">Satellite imagery is rendered live in your browser from the ME-DEM elevation model and ME-GIS layers, so you can zoom from the whole continent down to single roofs in Minas Tirith or hobbit-holes in Hobbiton.<br><br>
-      <b>Tips</b><br>• Search places and events in the box above.<br>• Right-click the map: coordinates, <i>What's here?</i>, measure distance.<br>• Bottom-left square: switch Map / Satellite; hover it for Terrain, Labels, Events and Journeys.<br>• Chips at the top: event timeline, journeys, cities, landmarks.<br>• The URL always holds the current view, so you can share it.</div>
+      <b>Tips</b><br>• Search places and events in the box above.<br>• ${isTouch ? 'Long-press' : 'Right-click'} the map: coordinates, <i>What's here?</i>, measure distance.<br>• Bottom-left square: switch Map / Satellite; ${isTouch ? 'the ⚙ button next to it' : 'hover it'} for Terrain, Labels and Events.<br>• Chips at the top: events, journeys, cities, landmarks. Your choices stay on the chip, with ✕ to clear.<br>• ${isTouch ? 'Tap' : 'Hover'} a journey to see where and when; ${isTouch ? 'tap' : 'click'} for the story.<br>• The URL always holds the current view, so you can share it.</div>
       <div class="desc" style="font-size:12px;color:#70757a">${PLACES.filter(p => p.curated).length} described places · ${EVENTS.length} events · ${window.ME_JOURNEYS.length} journeys.<br>
       Terrain: Arda 32k DEM (CC BY 4.0) · Vectors: ME-GIS · Map library: Leaflet. Middle-earth is the creation of J.R.R. Tolkien; this is a non-commercial fan project. See README.md to contribute.</div>`);
   };

@@ -166,6 +166,19 @@ image-map area with pixel coordinates, which makes a systematic check possible:
 Places with `keep: true` in `places.js` ignore Arda's position. Minas Tirith stays on the
 mountain's spur in our terrain. The Ford of Bruinen sits where our road crosses our river.
 
+### Panels, chips and phones
+
+The chips (Events, Journeys, Cities, Landmarks) open a panel: a floating card on desktop, a bottom
+sheet on phones. The panel is only for choosing. Choices stay visible on the chip after it closes,
+for example "Frodo & Sam ✕" or "2 journeys ✕" or "⚔️ The Hobbit ✕", and ✕ clears them. Journeys start
+hidden; tick the ones you want and press Done, and the map fits them. The selection is kept in the
+URL (`…/j=frodo,bilbo`). The Events filter also filters the pins on the map.
+
+On phones, place, event and journey cards are a draggable bottom sheet (peek / half / full; drag
+the handle down to dismiss). The map flies so its target lands above the sheet, and map controls
+hide while a sheet is open. Layer options, which are a hover menu on desktop, open from a ⚙ button.
+`node tools/test/mobile.js` walks these flows on an emulated iPhone.
+
 ### Journey timelines
 
 Hovering a journey shows a small pill: who, the approximate date at that point, and between
@@ -234,6 +247,7 @@ Roads on the tiles are also corner-smoothed (Chaikin) before drawing.
 | 2026-11-20 | Journeys routed on roads and rivers and smoothed. | Straight waypoint-to-waypoint lines looked artificial and ignored the roads the travellers actually used. |
 | 2026-11-20 | Landmarks are **real 3D models** built procedurally with three.js and shown two ways: an orbitable 3D view, and top-down renders overlaid on the satellite map at z12+. | The 2D canvas drawings read as "sloppy cubes". Procedural models need no asset downloads or licences, can be tuned in code, sit on the real DEM, and the same model feeds both the 3D view and the map. three.js r160 is vendored as the UMD build, so it still works from `file://`. |
 | 2026-11-20 | **Journey audit**: every leg checked with `journey_audit.js` and on the map against the books. Frodo's Old Forest, Strider's route via the Chetwood, the Sirannon approach to Moria, the Nen Hithoel crossing, the Morgai trench and Isenmouthe; Aragorn's Dol Baran, Calembel and Linhir; Bilbo's Elf-path, barrels and boat up the Long Lake; Gandalf's beacon ride; the Rohirrim's Stonewain Valley. Lake-town moved into the Long Lake. | Waypoints had been placed by eye. Combined with broken road snapping, that produced detours (e.g. Henneth Annûn to the Cross-roads via Osgiliath) and lines that ignored the story. |
+| 2026-11-21 | Journeys are **opt-in checkboxes**, and choices live on the chips; phones get **bottom sheets**. | On phones the old journeys legend and the place card covered most of the map, and all six journeys appeared at once. |
 | 2026-11-21 | **Journey timelines** shown as a hover pill plus a click-to-expand card, not as labels on the map. | It keeps the map uncluttered: the only permanent additions are tiny stage dots, hidden below zoom 6. A wide invisible hit-line makes the thin routes easy to hover. |
 | 2026-11-20 | fBm uses **gradient noise** and drops octaves under 3 px per cell. | Value noise near the pixel limit showed up as blocky squares at low zoom. |
 | 2026-11-20 | Farmland at low zoom uses the **expected** field coverage, not per-farm coin flips. | Per-farm on/off decisions aliased into a checkerboard when farms were only a few pixels wide. |

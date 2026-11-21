@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
   const errs = []; page.on('console', m => { if (m.type() !== 'log') errs.push(m.type() + ' ' + m.text().slice(0, 200)); }); page.on('pageerror', e => errs.push(e.message));
   await page.goto('file://' + require('path').resolve(__dirname, '../../web/index.html') + (process.argv[2] || '#4/950/1100/map'));
   await page.waitForTimeout(2500);
-  const t0 = Date.now(); await page.click('[data-chip=journeys]'); console.log('routing ms', Date.now() - t0);
+  const t0 = Date.now(); await page.click('[data-chip=journeys]'); await page.click('[data-act=all]'); await page.click('[data-act=done]'); console.log('routing ms', Date.now() - t0);
   await page.waitForTimeout(5000);
   await page.screenshot({ path: process.argv[3] || '/tmp/me/jr.png' });
   console.log(errs.join('\n'));

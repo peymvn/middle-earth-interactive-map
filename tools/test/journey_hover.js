@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
   const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   await page.goto('file://' + require('path').resolve(__dirname, '../../web/index.html') + '#5/900/1100/map');
   await page.waitForTimeout(2000);
-  await page.click('[data-chip=journeys]');
+  await page.click('[data-chip=journeys]'); await page.click('[data-act=all]'); await page.click('[data-act=done]');
   const pt = await page.evaluate(([id, frac, zoom, back]) => {
     const rec = ME.journeyLines.find(r => r.j.id === id); const path = back ? rec.backPath : rec.path;
     const q = path[Math.floor(path.length * frac)];
