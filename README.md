@@ -326,16 +326,22 @@ Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
   3 March 3019, Osgiliath before the ruin).
 * "Directions" between places along roads, with travel time on foot, pony or horse.
 
-## Credits & licences
+## License
 
-* **Elevation**: Arda 32k DEM by Pete Lewis (therealJiko), derived from the ME-DEM by monks and
-  Redrobes (Outerra forum), distributed by [bburns/Arda](https://github.com/bburns/Arda) under
-  **CC BY 4.0**.
-* **Vectors**: [ME-GIS](https://github.com/andrewheiss/ME-GIS) by monks, SeerBlue, Redrobes,
-  jvangeld and others, via Arda's `vectors.gpkg`. The authors say they "typically approve most
-  personal and educational uses". Ask them before any other use.
-* **Leaflet** 1.9.4, BSD-2-Clause (vendored in `web/vendor/leaflet`).
-* **three.js** r160, MIT (vendored in `web/vendor/three`).
-* Middle-earth, its places, characters and events are the creation of **J.R.R. Tolkien**. This is
-  a non-commercial fan project. Descriptions are written fresh, with short quotations from the
-  books. Imagery is an artistic reconstruction, not a canonical depiction.
+**MIT** (see [LICENSE](LICENSE)): use, copy, change and share this project's code and writing
+freely; just keep the copyright notice.
+
+Bundled data and libraries keep their own licenses:
+
+* **Elevation:** Arda 32k DEM by Pete Lewis (therealJiko), from the ME-DEM by monks and Redrobes,
+  via [bburns/Arda](https://github.com/bburns/Arda). **CC BY 4.0**, so credit them if you reuse
+  the terrain tiles.
+* **Map features (rivers, roads, towns, names):** [ME-GIS](https://github.com/andrewheiss/ME-GIS)
+  by monks, SeerBlue, Redrobes, jvangeld and others. They have no formal license; the authors
+  approve most personal and educational use, so ask them for anything else.
+* **Libraries:** Leaflet 1.9.4 (BSD-2-Clause) and three.js r160 (MIT), in `web/vendor/`.
+* **Film stills** are linked from the LOTR Fandom wiki, not included here.
+
+Middle-earth and everything in it is the creation of **J.R.R. Tolkien**. This is a non-commercial
+fan project, not affiliated with the Tolkien Estate, Middle-earth Enterprises, New Line Cinema or
+Warner Bros. The imagery is an artistic reconstruction, not a canonical depiction.
