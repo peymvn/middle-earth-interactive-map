@@ -44,7 +44,10 @@ miles, and shareable URLs (`#zoom/x-km/y-km/mode`).
 
 ## Opening it
 
-Open `web/index.html` in a modern browser (Chrome, Edge, Firefox or Safari 16.4+). That's it: no
+**Live:** https://peymvn.github.io/middle-earth-interactive-map/ (GitHub Pages, deployed from
+`web/` on every push to `main` by `.github/workflows/pages.yml`).
+
+Locally: open `web/index.html` in a modern browser (Chrome, Edge, Firefox or Safari 16.4+). That's it: no
 server and no build step are needed to *view* the map. Everything, including terrain data, is loaded
 with plain `<script>` tags so it also works from `file://`.
 
