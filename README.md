@@ -344,6 +344,12 @@ node tools/test/journey_audit.js                                                
 
 Set `CHROME=/path/to/chrome` if Playwright's own browser is not installed.
 
+**Demo video** (`tools/test/record_zoom.js`, `compose_zoom.py`, `record_video.js`, `make_video.sh`):
+the map zoom is built from one screenshot per zoom level, scaled and crossfaded in Python, with labels
+drawn as sprites at exact sub-pixel positions (stepping Leaflet through fractional zooms makes text
+shake, because it rounds to whole pixels). The 3D orbit is captured frame by frame. See the
+header of `make_video.sh` for the commands. It takes a few hours on a CPU-only machine.
+
 ### Repository notes
 
 * `sources/` (including Blender and the Poly Haven downloads), `build_tmp/`, `.venv/` and `tools/test/node_modules/` are ignored (see `.gitignore`).
