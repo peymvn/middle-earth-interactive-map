@@ -42,6 +42,7 @@ FIX.update({
     'R. S\ufffdr Ninglor': 'R. Sîr Ninglor', 'Haudh-in-Gwan\ufffdr': 'Haudh-in-Gwanûr',
     'Tiauar-in-Dr\ufffdedain': 'Tawar-in-Drúedain', 'Sea of Rh\ufffdn': 'Sea of Rhûn', 'Sea of N\ufffdrnen': 'Sea of Núrnen',
     'R. G\ufffdlduin': 'R. Galduin', 'Henneth Arnen': 'Henneth Annûn', 'Trollsahws': 'Trollshaws',
+    'Nan Curunur': 'Nan Curunír', 'Nan Curun\ufffdr': 'Nan Curunír',
 })
 
 

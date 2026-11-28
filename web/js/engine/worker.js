@@ -419,9 +419,13 @@ function MEWorker() {
     if (mode === 'map') drawRoads(view, true);
     const bmp = canvas.transferToImageBitmap();
     if (job.patch) {
-      const heights = new Float32Array(R * R);
-      for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) heights[j * R + i] = H[(j + 1) * W2 + (i + 1)];
-      return { bmp, heights };
+      const heights = new Float32Array(R * R), water = new Uint8Array(R * R);
+      for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
+        const k = (j + 1) * W2 + (i + 1);
+        heights[j * R + i] = H[k];
+        water[j * R + i] = H[k] <= 0 ? 1 : cls[k] === C_LAKE ? 2 : 0;   // 1 sea, 2 lake
+      }
+      return { bmp, heights, water };
     }
     return bmp;
   }
@@ -828,7 +832,7 @@ function MEWorker() {
     if (m.type === 'render') {
       try {
         const out = await render(m.job);
-        if (out.heights) self.postMessage({ type: 'tile', id: m.id, bmp: out.bmp, heights: out.heights }, [out.bmp, out.heights.buffer]);
+        if (out.heights) self.postMessage({ type: 'tile', id: m.id, bmp: out.bmp, heights: out.heights, water: out.water }, [out.bmp, out.heights.buffer, out.water.buffer]);
         else self.postMessage({ type: 'tile', id: m.id, bmp: out }, [out]);
       } catch (err) {
         self.postMessage({ type: 'tile', id: m.id, error: String(err && err.stack || err) });

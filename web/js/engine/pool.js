@@ -54,7 +54,7 @@
           const job = jobs.get(m.id);
           jobs.delete(m.id);
           w.busy = false;
-          if (job) { if (m.error) job.reject(new Error(m.error)); else job.resolve(m.heights ? { bmp: m.bmp, heights: m.heights } : m.bmp); }
+          if (job) { if (m.error) job.reject(new Error(m.error)); else job.resolve(m.heights ? { bmp: m.bmp, heights: m.heights, water: m.water } : m.bmp); }
           else if (m.bmp) m.bmp.close();
           pump();
         }

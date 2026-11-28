@@ -13,4 +13,6 @@ $PY tools/build_relief.py                       # web/data/relief.js
 if [ -d sources/arda-ref/pages ]; then          # web/data/arda.js (needs tools/arda_crawl.sh)
   python3 tools/arda_compare.py && $PY tools/arda_apply.py
 fi
+# ports and river towns onto the drawn water (needs Playwright: cd tools/test && npm i)
+[ -d tools/test/node_modules ] && $CAP nice node tools/fix_waterside.js
 echo "rebuilt."
