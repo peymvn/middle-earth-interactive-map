@@ -256,6 +256,16 @@ html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--tex
 .gh-chip .gh-count { padding-left: 7px; margin-left: 1px; border-left: 1px solid #d0d7de; color: #57606a; font-weight: 400; }
 .gh-chip:hover { background: #fff; }
 .gh-chip:hover .gh-star-ico { transform: rotate(72deg) scale(1.2); }
-@media (min-width: 701px) { .gh-chip { position: fixed; top: 16px; right: 12px; z-index: 900; } }
+/* support links: GitHub star and Buy me a coffee, side by side at the top right on desktop */
+#support { display: contents; }
+.bmc-chip svg.bmc-ico { width: 18px; height: 18px; fill: none; transition: transform .3s; }
+.bmc-chip .bmc-short { display: none; }
+.bmc-chip:hover { background: #ffdd00; }
+.bmc-chip:hover .bmc-ico { transform: rotate(-12deg) scale(1.15); }
+@media (min-width: 701px) {
+  #support { display: flex; gap: 8px; position: fixed; top: 16px; right: 12px; z-index: 900; }
+}
+@media (min-width: 701px) and (max-width: 1160px) { #support { top: 62px; } }   /* below the chips when they would collide */
+@media (max-width: 700px) { .bmc-chip .bmc-label { display: none; } .bmc-chip .bmc-short { display: inline; } }
 #card .gh-card-btn { flex: none; display: inline-block; background: #24292f; color: #fff; text-decoration: none; border-radius: 16px; padding: 6px 12px; font: 500 13px var(--font); margin-right: 4px; }
 #card .row:has(.gh-card-btn) { flex-direction: column; gap: 6px; }

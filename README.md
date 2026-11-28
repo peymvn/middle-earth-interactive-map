@@ -381,6 +381,11 @@ header of `make_video.sh` for the commands. It takes a few hours on a CPU-only m
   3 March 3019, Osgiliath before the ruin).
 * "Directions" between places along roads, with travel time on foot, pony or horse.
 
+## Support
+
+The map is free and has no ads. If you enjoy it, a ⭐ on GitHub or a coffee at
+[buymeacoffee.com/meynap](https://buymeacoffee.com/meynap) helps keep it growing.
+
 ## License
 
 **MIT** (see [LICENSE](LICENSE)): use, copy, change and share this project's code and writing
